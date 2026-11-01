@@ -1,0 +1,20 @@
+# THROWAWAY SPIKE: proves the light-level drawing path. Not part of the real mod.
+
+[tasks.build]
+description = "Builds the spike mod into spike/bin/levels-spike"
+dir = "{{config_root}}"
+run = ["xmake f -p windows -a x64 -m release -y", "xmake -r -y"]
+
+[tasks.install]
+description = "Copies the built spike into the game mods folder (LM_MODS_DIR)"
+depends = ["build"]
+dir = "{{config_root}}"
+shell = "bash -c"
+env = { LM_MOD_FOLDER = "Levels Spike" }
+run = 'mkdir -p "${LM_MODS_DIR:?set LM_MODS_DIR}/$LM_MOD_FOLDER" && cp -r bin/levels-spike/. "$LM_MODS_DIR/$LM_MOD_FOLDER/"'
+
+[env]
+LM_MODS_DIR = "C:/Users/charl/AppData/Roaming/levilauncher.exe/versions/1.26.51.01/mods"
+
+[tools]
+"github:xmake-io/xmake" = "3.1.1"

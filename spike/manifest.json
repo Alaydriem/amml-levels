@@ -1,0 +1,9 @@
+{
+    "name": "Levels Spike",
+    "author": "Charles R. Portwood II",
+    "entry": "${modFile}",
+    "version": "${modVersion}",
+    "type": "native",
+    "platform": "client",
+    "clientSide": true
+}

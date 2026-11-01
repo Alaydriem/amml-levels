@@ -1,0 +1,21 @@
+[package]
+name = "levels-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[dependencies]
+curia.workspace = true
+serde.workspace = true
+
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[lints]
+workspace = true

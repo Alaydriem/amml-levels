@@ -1,0 +1,164 @@
+[tasks.preflight]
+description = "Names a missing Rust toolchain or cargo-nextest before a build turns it into an obscure error"
+dir = "{{config_root}}"
+run = ["rustc --version", "cargo --version", "cargo nextest --version"]
+
+[tasks.check]
+description = "cargo check, clippy with warnings denied, and rustfmt check over the workspace"
+dir = "{{config_root}}"
+run = [
+  "cargo check --workspace --all-targets",
+  "cargo clippy --workspace --all-targets -- -D warnings",
+  "cargo fmt --all --check",
+]
+
+[tasks.test]
+description = "Every workspace test through cargo-nextest"
+dir = "{{config_root}}"
+run = "cargo nextest run --workspace"
+
+[tasks.package]
+description = "Builds the AMML mod into dist/@alaydriem/levels (alaydriem_levels.dll and amml.hcl); that folder is the release artifact"
+dir = "{{config_root}}"
+shell = "bash -c"
+run = '''
+set -e
+cargo build --release -p levels-amml
+rm -rf dist/alaydriem-levels dist/@alaydriem/levels
+mkdir -p dist/@alaydriem/levels
+cp target/release/alaydriem_levels.dll dist/@alaydriem/levels/alaydriem_levels.dll
+cp levels/amml/amml.hcl dist/@alaydriem/levels/amml.hcl
+echo "built dist/@alaydriem/levels"
+'''
+
+[tasks.instance-setup]
+description = "Copies the 1.26.60.05-standalone instance to 1.26.60.05-levels (skips logs/; skips files with the same size and time) and empties its mods/amml except @amml/modmanager and the @alaydriem/levels config/. Then replaces amml/recipes with ../amml/recipes and amml.dll with ../amml/target/release/amml.dll when it exists. Running it again refreshes the loader and manager files and keeps the levels config. Prints the instance path"
+dir = "{{config_root}}"
+shell = "bash -c"
+run = '''
+set -e
+[ -n "$LOCALAPPDATA" ] || { echo "LOCALAPPDATA is not set; the instances live under %LOCALAPPDATA%/amml/instances"; exit 1; }
+source="$LOCALAPPDATA/amml/instances/1.26.60.05-standalone"
+instance="$LOCALAPPDATA/amml/instances/1.26.60.05-levels"
+[ -d "$source" ] || { echo "no instance at $source"; exit 1; }
+mkdir -p "$instance"
+# robocopy exit codes below 8 are success
+rc=0
+robocopy "$(cygpath -w "$source")" "$(cygpath -w "$instance")" //E //NFL //NDL //NJH //NJS //NP \
+  //XD "$(cygpath -w "$source/logs")" "$(cygpath -w "$source/mods/amml")" || rc=$?
+[ "$rc" -lt 8 ] || { echo "robocopy failed with exit code $rc"; exit 1; }
+rc=0
+robocopy "$(cygpath -w "$source/mods/amml/@amml/modmanager")" "$(cygpath -w "$instance/mods/amml/@amml/modmanager")" \
+  //E //NFL //NDL //NJH //NJS //NP || rc=$?
+[ "$rc" -lt 8 ] || { echo "robocopy of the manager failed with exit code $rc"; exit 1; }
+for namespace in "$instance/mods/amml"/*; do
+  case "${namespace##*/}" in
+    @amml)
+      for path in "$namespace"/*; do [ "${path##*/}" = "modmanager" ] || rm -rf "$path"; done ;;
+    @alaydriem)
+      for path in "$namespace"/*; do
+        if [ "${path##*/}" = "levels" ]; then
+          for inner in "$path"/*; do [ "${inner##*/}" = "config" ] || rm -rf "$inner"; done
+        else
+          rm -rf "$path"
+        fi
+      done ;;
+    *) rm -rf "$namespace" ;;
+  esac
+done
+# the loader and recipes of the standalone instance may be older than ../amml; the current ones replace them
+recipes="{{config_root}}/../amml/recipes"
+if [ -d "$recipes" ]; then
+  rm -rf "$instance/amml/recipes"
+  mkdir -p "$instance/amml/recipes"
+  cp -R "$recipes"/. "$instance/amml/recipes/"
+  rm -f "$instance/amml/recipes/.gitkeep"
+else
+  echo "no recipes at $recipes; the instance keeps the standalone ones"
+fi
+loader="{{config_root}}/../amml/target/release/amml.dll"
+[ -f "$loader" ] && cp -f "$loader" "$instance/amml.dll"
+echo "$instance"
+'''
+
+[tasks.ingame-start]
+description = "Packages the mod, installs dist/@alaydriem/levels into the 1.26.60.05-levels instance, starts its Minecraft.Windows.exe and writes '<pid> <created>' to <instance>/levels-test.pid. Refuses to start while that file names a live game of this instance. --with-stratum also installs ../stratum/dist/@alaydriem/stratum; without it stratum is removed from the instance; --stratum-dir <dir> installs it from that folder instead. --manager <dir> installs the manager from that folder"
+dir = "{{config_root}}"
+shell = "bash -c"
+depends = ["package"]
+usage = '''
+flag "--with-stratum" help="Also install ../stratum/dist/@alaydriem/stratum"
+flag "--stratum-dir <dir>" help="With --with-stratum: install stratum from this folder instead of ../stratum/dist/@alaydriem/stratum"
+flag "--manager <dir>" help="Install the manager from this folder (amml_modmanager.dll, amml.hcl), for a manager whose ABI matches the amm-client the mod is built with"
+'''
+run = '''
+set -e
+[ -n "$LOCALAPPDATA" ] || { echo "LOCALAPPDATA is not set; the instances live under %LOCALAPPDATA%/amml/instances"; exit 1; }
+instance="$LOCALAPPDATA/amml/instances/1.26.60.05-levels"
+pidfile="$instance/levels-test.pid"
+repo="$PWD"
+amml="$(cd ../amml && pwd)"
+[ -f "$instance/Minecraft.Windows.exe" ] || { echo "no instance at $instance; run mise run instance-setup"; exit 1; }
+cd "$amml"
+. scripts/game-pid.sh
+if [ -f "$pidfile" ]; then
+  read -r game_pid game_created < "$pidfile" || true
+  game_dir="$instance"
+  if pid_alive; then echo "the game of this instance still runs (pid $game_pid); run mise run ingame-stop first"; exit 1; fi
+  echo "removing the stale $pidfile (pid $game_pid no longer runs from this instance)"
+  rm -f "$pidfile"
+fi
+mods="$instance/mods/amml"
+mkdir -p "$mods/@alaydriem/levels"
+cp "$repo/dist/@alaydriem/levels/"* "$mods/@alaydriem/levels/"
+if [ "${usage_with_stratum:-false}" = "true" ]; then
+  stratum="${usage_stratum_dir:-$repo/../stratum/dist/@alaydriem/stratum}"
+  [ -d "$stratum" ] || { echo "no stratum build at $stratum"; exit 1; }
+  mkdir -p "$mods/@alaydriem/stratum"
+  cp -r "$stratum/"* "$mods/@alaydriem/stratum/"
+  echo "installed stratum from $stratum"
+else
+  rm -rf "$mods/@alaydriem/stratum"
+fi
+if [ -n "${usage_manager:-}" ]; then
+  [ -f "$usage_manager/amml_modmanager.dll" ] || { echo "no amml_modmanager.dll in $usage_manager"; exit 1; }
+  cp "$usage_manager/amml_modmanager.dll" "$usage_manager/amml.hcl" "$mods/@amml/modmanager/"
+  echo "installed the manager from $usage_manager"
+fi
+before=" $(echo $(game_pids)) "
+powershell.exe -NoProfile -NonInteractive -Command "Start-Process -FilePath '$(cygpath -w "$instance/Minecraft.Windows.exe")' -WorkingDirectory '$(cygpath -w "$instance")'"
+game_pid=""
+started=$(date +%s)
+while [ -z "$game_pid" ] && [ $(( $(date +%s) - started )) -lt 60 ]; do
+  find_game_pid "$instance"
+  [ -n "$game_pid" ] || sleep 1
+done
+[ -n "$game_pid" ] || { echo "no new Minecraft.Windows.exe from $instance within 60 s; no PID recorded"; exit 1; }
+printf '%s %s\n' "$game_pid" "$game_created" > "$pidfile"
+echo "game started: pid $game_pid created $game_created (recorded in $pidfile)"
+'''
+
+[tasks.ingame-stop]
+description = "Stops the game recorded in <instance>/levels-test.pid of the 1.26.60.05-levels instance, after checking that the PID still is a Minecraft.Windows.exe from that instance with the recorded creation time, and deletes the file. Stops no other process"
+dir = "{{config_root}}"
+shell = "bash -c"
+run = '''
+set -e
+[ -n "$LOCALAPPDATA" ] || { echo "LOCALAPPDATA is not set; the instances live under %LOCALAPPDATA%/amml/instances"; exit 1; }
+instance="$LOCALAPPDATA/amml/instances/1.26.60.05-levels"
+pidfile="$instance/levels-test.pid"
+[ -f "$pidfile" ] || { echo "no $pidfile; nothing to stop"; exit 0; }
+cd ../amml
+. scripts/game-pid.sh
+read -r game_pid game_created < "$pidfile" || true
+game_dir="$instance"
+if pid_alive; then
+  taskkill //F //PID "$game_pid" > /dev/null
+  for _ in $(seq 1 15); do pid_alive || break; sleep 1; done
+  if pid_alive; then echo "pid $game_pid still runs after taskkill"; exit 1; fi
+  echo "stopped pid $game_pid"
+else
+  echo "pid $game_pid is not a game of this instance (exited or reused); nothing stopped"
+fi
+rm -f "$pidfile"
+'''
