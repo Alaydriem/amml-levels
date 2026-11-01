@@ -61,7 +61,7 @@ The overlays hide with the HUD (<kbd>F1</kbd>).
 
 Requires:
 
-- the **AMML loader** (0.1.0 or later), which loads the mod into the game. The loader also carries the recipes that
+- the **AMML loader** (26.60.0 or later), which loads the mod into the game. The loader also carries the recipes that
   find the game addresses the overlay uses (in its `recipes/`). An older loader does not have
   them: it logs "required entry ... did not resolve" and the overlay stays off. Update the loader first.
 - [Alaydriem's Mod Manager](https://github.com/alaydriem/modmanager), installed as an AMML mod.
@@ -73,7 +73,7 @@ manager.
 
 | Levels | Minecraft Bedrock | AMML loader | Mod Manager |
 | --- | --- | --- | --- |
-| 0.1.0 | 1.26.51, 1.26.60 | 0.1.0+ | 0.1.x |
+| 26.60.0 | 1.26.51, 1.26.60 | 26.60.0+ | 26.60.x |
 
 Chunk borders and spawn spheres are tested on 1.26.60 only.
 
