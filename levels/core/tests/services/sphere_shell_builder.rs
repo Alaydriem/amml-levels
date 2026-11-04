@@ -23,6 +23,23 @@ fn fill_is_on_the_radius_and_lines_sit_the_lift_outside_it() {
 }
 
 #[test]
+fn without_fill_only_the_line_quads_are_built_and_turning_it_back_on_restores_them() {
+    let mut builder = SphereShellBuilder::new();
+    let mut quads = Vec::new();
+    assert!(builder.set_fill(false));
+    assert!(!builder.set_fill(false));
+
+    builder.build(24.0, [0.0, 1.0, 0.0, 0.08], &mut quads);
+
+    let fill = (SphereShellBuilder::SEGMENTS * SphereShellBuilder::RINGS) as usize;
+    assert_eq!(quads.len(), SphereShellBuilder::quad_count() - fill);
+    assert!(quads.iter().all(|quad| quad.rgba[3] > (0.08f32 * 255.0).round() as u8));
+    assert!(builder.set_fill(true));
+    builder.build(24.0, [0.0, 1.0, 0.0, 0.08], &mut quads);
+    assert_eq!(quads.len(), SphereShellBuilder::quad_count());
+}
+
+#[test]
 fn quad_count_matches() {
     let builder = SphereShellBuilder::new();
     let mut out: Vec<ColorQuad> = Vec::new();

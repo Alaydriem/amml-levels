@@ -1,5 +1,5 @@
-//! @alaydriem/levels as an AMML mod: reads the surface light around the player each tick and draws it as labels
-//! in the game's own name-tag list, driven by levels-core and registered with the mod manager.
+//! @alaydriem/levels as an AMML mod: reads the surface light around the player each tick and draws it as flat
+//! label meshes in the level render, driven by levels-core and registered with the mod manager.
 
 #![deny(unsafe_code)]
 

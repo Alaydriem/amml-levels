@@ -15,6 +15,8 @@ pub struct BordersConfig {
     pub center_color: [f32; 4],
     pub line_width: f32,
     pub edge_width: f32,
+    // borders beside a slime chunk are drawn green
+    pub slime_highlight: bool,
 }
 
 impl Default for BordersConfig {
@@ -25,6 +27,7 @@ impl Default for BordersConfig {
             center_color: [1.0, 1.0, 1.0, 0.6],
             line_width: DEFAULT_LINE_WIDTH,
             edge_width: DEFAULT_EDGE_WIDTH,
+            slime_highlight: false,
         }
     }
 }
@@ -37,6 +40,7 @@ impl BordersConfig {
             center_color: Self::color(self.center_color),
             line_width: Self::width(self.line_width, DEFAULT_LINE_WIDTH),
             edge_width: Self::width(self.edge_width, DEFAULT_EDGE_WIDTH),
+            slime_highlight: self.slime_highlight,
         }
     }
 

@@ -5,10 +5,10 @@ use amml_game::{EntryId, EntryNeed, EntryResolver, GameEntries, GameError, HookO
 use amml_sdk::amml_abi::AmmlLogLevel;
 use amml_sdk::{AmmlMod, Api, HookHandle, ModDirs, SdkError};
 
-use crate::detours::{client_update, extract_name_tags, render_level, setup_camera, view_object};
-use crate::game::{BaseActorRenderer, GameMirror, LevelRendererPlayer, NameTagRenderObject};
+use crate::detours::{client_update, render_level};
+use crate::game::{BaseActorRenderer, GameMirror};
 use crate::services::LevelsRuntime;
-use crate::types::{LevelsEntry, LevelsFeature};
+use crate::types::{LevelsEntry, MeshCalls};
 
 // the AMML entry point: load notes the folders, enable resolves the entries, installs the hooks and starts the
 // overlay, disable removes the hooks and stops it
@@ -18,8 +18,8 @@ impl LevelsMod {
     // the mod id as a static string for the host and logger; a test checks it equals AmmlMod::id()
     pub const MODULE: &'static str = "@alaydriem/levels";
     // the entries the overlay cannot run without: the client, the player's pose, dimension and block source, the
-    // chunk reads, the light and surface reads, the render camera and the name-tag draw path
-    pub const REQUIRED: [EntryId; 31] = [
+    // chunk reads, the light and surface reads, the frame's camera position, and the world mesh path with the level renderer's wireframe material
+    pub const REQUIRED: [EntryId; 61] = [
         EntryId::CLIENT_INSTANCE_UPDATE,
         EntryId::CLIENT_INSTANCE_GET_LOCAL_PLAYER,
         EntryId::CLIENT_INSTANCE_IS_WORLD_ACTIVE,
@@ -39,27 +39,53 @@ impl LevelsMod {
         EntryId::BLOCK_SOURCE_GET_BRIGHTNESS_PAIR,
         EntryId::BLOCK_CAN_PROVIDE_FULL_SUPPORT,
         EntryId::BLOCK_TYPE_GET_COLLISION_SHAPE,
-        EntryId::LEVEL_RENDERER_PLAYER_SETUP_CAMERA,
-        EntryId::LEVEL_RENDERER_PLAYER_CREATE_VIEW_RENDER_OBJECT,
         EntryId::CAMERA_FORWARD,
         EntryId::VIEW_RENDER_OBJECT_VIEW_DATA,
         EntryId::VIEW_RENDER_DATA_CAMERA_POS,
-        LevelsEntry::LEVEL_RENDERER_PLAYER_VTABLE,
-        LevelsEntry::EXTRACT_NAME_TAGS,
-        LevelsEntry::NAME_TAG_SIZE,
         LevelsEntry::SCREEN_CONTEXT_TESSELLATOR,
         LevelsEntry::BASE_ACTOR_RENDERER_CTOR,
         LevelsEntry::BASE_ACTOR_RENDERER_SIZE,
-        LevelsEntry::EXTRACT_RENDER_TEXT_OBJECT,
+        LevelsEntry::GRAPHICS_MODE_DEFERRED,
+        LevelsEntry::RENDER_LEVEL,
+        LevelsEntry::FRAME_VIEWS,
+        LevelsEntry::TESSELLATOR_BEGIN,
+        LevelsEntry::TESSELLATOR_END,
+        LevelsEntry::TESSELLATOR_CLEAR,
+        LevelsEntry::TESSELLATOR_TESSELLATING,
+        LevelsEntry::MESH_DTOR,
+        LevelsEntry::MESH_IS_VALID,
+        LevelsEntry::MESH_RENDER,
+        LevelsEntry::MESH_SIZE,
+        LevelsEntry::MATRIX_STACK_PUSH,
+        LevelsEntry::MATRIX_STACK_REF_DTOR,
+        LevelsEntry::SET_ENTITY_CONSTANTS,
+        LevelsEntry::ENTITY_CONSTANT_BUFFER,
+        LevelsEntry::GET_TEXTURE_GROUP,
+        LevelsEntry::TEXTURE_GROUP_GET_TEXTURE,
+        LevelsEntry::TEXTURE_GROUP_UPLOAD_TEXTURE,
+        LevelsEntry::TEXTURE_GROUP_UNLOAD_TEXTURE,
+        LevelsEntry::RESOURCE_LOCATION_CTOR,
+        LevelsEntry::IMAGE_BUFFER_CTOR,
+        LevelsEntry::RESOURCE_LOCATION_FULL_HASH,
+        LevelsEntry::IMAGE_BUFFER_DESCRIPTION,
+        LevelsEntry::IMAGE_DESCRIPTION_DEPTH,
+        LevelsEntry::TEXTURE_GROUP_BASE_OFFSET,
+        LevelsEntry::SCREEN_CONTEXT_MESH_CONTEXT,
+        LevelsEntry::SCREEN_CONTEXT_CAMERA,
+        LevelsEntry::SCREEN_CONTEXT_CONSTANT_BUFFERS,
+        LevelsEntry::SCREEN_CONTEXT_CURRENT_SHADER_COLOR,
+        LevelsEntry::LEVEL_RENDERER_PLAYER,
+        LevelsEntry::WIREFRAME_MATERIAL,
+        LevelsEntry::MATERIAL_INFO_MATERIAL,
+        LevelsEntry::MATERIAL_ENABLE_BLEND,
+        LevelsEntry::MATERIAL_DEPTH_WRITE,
+        LevelsEntry::MATERIAL_BLEND_SOURCE,
+        LevelsEntry::MATERIAL_BLEND_DESTINATION,
     ];
 
-    // every entry the overlay asks for: the required ones, then each optional feature's
+    // every entry the overlay asks for, all required
     pub fn wanted() -> Vec<(EntryId, EntryNeed)> {
-        let required = Self::REQUIRED.iter().map(|id| (*id, EntryNeed::Required));
-        let optional = LevelsFeature::ALL.iter().flat_map(|feature| {
-            LevelsFeature::entries(feature).iter().map(|id| (*id, EntryNeed::Optional { feature }))
-        });
-        required.chain(optional).collect()
+        Self::REQUIRED.iter().map(|id| (*id, EntryNeed::Required)).collect()
     }
 
     // the entries, or an error when a required entry is missing
@@ -67,31 +93,10 @@ impl LevelsMod {
         GameEntries::resolve(resolver, &Self::wanted())
     }
 
-    // the required mirrors that do not fit the build: the labels cannot be drawn with them
+    // the required mirrors that do not fit the build: the world meshes cannot be drawn with them
     pub fn layout_faults(entries: &GameEntries) -> Vec<String> {
-        [BaseActorRenderer::misfit(entries), NameTagRenderObject::misfit(entries)].into_iter().flatten().collect()
-    }
-
-    // one line per feature that is off, naming it and the entry or the mirror that turned it off
-    pub fn off_lines(entries: &GameEntries) -> Vec<String> {
-        let mut causes = entries.off_features();
-        for feature in LevelsFeature::ALL {
-            if causes.iter().all(|(off, _)| *off != feature)
-                && let Some(cause) = LevelsFeature::misfit(entries, feature)
-            {
-                causes.push((feature, cause));
-            }
-        }
-        causes
-            .into_iter()
-            .map(|(feature, cause)| match feature {
-                LevelsFeature::FONT => format!("{feature} is off ({cause}); the labels use a fixed width table"),
-                LevelsFeature::MARKERS => {
-                    format!("{feature} is off ({cause}); chunk borders and spawn spheres are not drawn")
-                }
-                _ => format!("{feature} is off ({cause})"),
-            })
-            .collect()
+        let mesh = MeshCalls::misfit(entries).map(|fault| fault.to_string());
+        mesh.into_iter().chain(BaseActorRenderer::misfit(entries)).collect()
     }
 
     #[allow(unsafe_code)]
@@ -122,21 +127,13 @@ impl LevelsMod {
         }
     }
 
-    // the readers run after every writer (a camera mod runs before them); the name-tag hook changes the game's
-    // list, so it is a writer. The render-level hook only draws after the game, so it is a reader, installed only
-    // when the markers feature is on; when it alone fails, markers is off and the light numbers keep working
+    // both hooks only read the game after its own work, so both run after every writer (a camera mod runs before
+    // them). The render-level hook draws after the game's level pass
     fn install_hooks(api: &Api, runtime: &LevelsRuntime, entries: &GameEntries) -> Result<(), SdkError> {
         let missing = |id: EntryId| SdkError::MissingEntry(id.as_str().to_string());
         let update =
             entries.get(EntryId::CLIENT_INSTANCE_UPDATE).ok_or_else(|| missing(EntryId::CLIENT_INSTANCE_UPDATE))?;
-        let setup = entries
-            .get(EntryId::LEVEL_RENDERER_PLAYER_SETUP_CAMERA)
-            .ok_or_else(|| missing(EntryId::LEVEL_RENDERER_PLAYER_SETUP_CAMERA))?;
-        let view = entries
-            .get(EntryId::LEVEL_RENDERER_PLAYER_CREATE_VIEW_RENDER_OBJECT)
-            .ok_or_else(|| missing(EntryId::LEVEL_RENDERER_PLAYER_CREATE_VIEW_RENDER_OBJECT))?;
-        let extract = LevelRendererPlayer::extract_name_tags_target(entries)
-            .ok_or_else(|| missing(LevelsEntry::EXTRACT_NAME_TAGS))?;
+        let render = entries.get(LevelsEntry::RENDER_LEVEL).ok_or_else(|| missing(LevelsEntry::RENDER_LEVEL))?;
         let read = HookOrder::READ_AFTER_WRITERS;
         Self::hook(
             api,
@@ -146,35 +143,8 @@ impl LevelsMod {
             client_update::detour as *const c_void,
             client_update::GUARD.original(),
         )?;
-        Self::hook(api, runtime, setup, read, setup_camera::detour as *const c_void, setup_camera::GUARD.original())?;
-        Self::hook(api, runtime, view, read, view_object::detour as *const c_void, view_object::GUARD.original())?;
-        Self::hook(
-            api,
-            runtime,
-            extract,
-            HookOrder::WRITE,
-            extract_name_tags::detour as *const c_void,
-            extract_name_tags::GUARD.original(),
-        )?;
-        if LevelsFeature::is_on(entries, LevelsFeature::MARKERS) {
-            let render = entries.get(LevelsEntry::RENDER_LEVEL).ok_or_else(|| missing(LevelsEntry::RENDER_LEVEL))?;
-            let hooked = Self::hook(
-                api,
-                runtime,
-                render,
-                read,
-                render_level::detour as *const c_void,
-                render_level::GUARD.original(),
-            );
-            if let Err(error) = hooked {
-                let line = format!(
-                    "{} is off (the render-level hook failed: {error}); chunk borders and spawn spheres are not drawn",
-                    LevelsFeature::MARKERS
-                );
-                api.log(Self::MODULE, AmmlLogLevel::WARN, &line);
-            }
-        }
-        Ok(())
+        Self::hook(api, runtime, render, read, render_level::detour as *const c_void, render_level::GUARD.original())
+            .map(|_| ())
     }
 }
 
@@ -196,13 +166,6 @@ impl AmmlMod for LevelsMod {
         if !faults.is_empty() {
             return Err(SdkError::Mod(faults.join("; ")));
         }
-        let off_lines = Self::off_lines(&entries);
-        for line in &off_lines {
-            api.log(Self::MODULE, AmmlLogLevel::WARN, line);
-        }
-        if off_lines.is_empty() {
-            api.log(Self::MODULE, AmmlLogLevel::INFO, "features off: none");
-        }
         if let Err(error) = Self::install_hooks(api, runtime, &entries) {
             Self::remove_hooks(api, runtime);
             return Err(error);
@@ -211,7 +174,7 @@ impl AmmlMod for LevelsMod {
         Ok(())
     }
 
-    // the hooks go first, so no new frame enters the overlay; then the registration ends. The ring stays allocated
+    // the hooks go first, so no new frame enters the overlay; then the registration ends
     fn disable(api: &Api) {
         let Some(runtime) = LevelsRuntime::get() else { return };
         runtime.latch().raise();

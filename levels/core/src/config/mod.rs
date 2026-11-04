@@ -9,5 +9,5 @@ pub use borders::BordersConfig;
 pub use label::LabelConfig;
 pub use levels::LevelsConfig;
 pub use light::LightConfig;
-pub use scan::{GAME_TAG_HEADROOM, MAX_COLUMN_SURFACES, MAX_RADIUS, ScanConfig};
+pub use scan::{MAX_COLUMN_SURFACES, MAX_LABELS, MAX_RADIUS, ScanConfig};
 pub use spheres::{MAX_MARKERS, SpheresConfig};

@@ -1,11 +1,13 @@
 mod chunk_border_planner;
 mod controller;
+mod digit_font;
 mod draw_list_builder;
 mod label_grid;
-mod label_rotation;
+mod label_mesh_builder;
 mod light_classifier;
 mod marker_registry;
 mod scan_planner;
+mod slime_chunks;
 mod sphere_shell_builder;
 mod telemetry;
 mod world_markers;

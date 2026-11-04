@@ -6,39 +6,40 @@ use std::sync::{Mutex, OnceLock, PoisonError};
 
 use amm_client::link::ApiTable;
 use amm_core::errors::LinkError;
-use amml_game::{ClientInstance, GameEntries, GameHeap, HeldClient, RenderCamera, StopLatch};
+use amml_game::{ClientInstance, GameEntries, HeldClient, StopLatch};
 use amml_sdk::{HookHandle, ModRuntime, PanicText};
 
-use crate::game::{BaseActorRenderer, FrameRenderObject};
+use crate::game::{FrameRenderObject, GraphicsMode, WireframeMaterial};
 use crate::services::{
-    CameraStore, FrameStatusReader, GameMeshFactory, LabelDrawer, MeshFactory, Overlay, ScanDriver, WorldDrawer,
+    FrameStatusReader, GameMeshFactory, MaterialPatch, MeshFactory, NameTagMaterial, Overlay, ScanDriver, WorldDrawer,
 };
-use crate::types::{DrawOutcome, DrawSetup, LevelsFeature, LinkState, MeshCalls, WorldFrame};
+use crate::types::{LinkState, MeshCalls, WorldFrame};
 
-// what the detours share: the folders, the stop latch, the camera and the state of the current enable. The tick, the
-// name-tag hook and the render-level hook may run on more than one thread; each takes the state lock, the two draw
-// hooks with `try_lock`, so a draw frame never waits. Disable may run on another thread and waits for the lock
+// what the detours share: the folders, the stop latch and the state of the current enable. The tick and the
+// render-level hook may run on more than one thread; each takes the state lock, the render hook with `try_lock`, so a
+// draw frame never waits. Disable may run on another thread and waits for the lock
 pub struct LevelsRuntime {
     config_dir: PathBuf,
     latch: StopLatch,
     entries: OnceLock<GameEntries>,
-    // the world mesh path; set at the first enable when the markers feature is on
+    // the world mesh path; set at the first enable
     mesh_calls: OnceLock<MeshCalls>,
     client: HeldClient,
-    camera: CameraStore,
     state: Mutex<RuntimeState>,
 }
 
-// everything behind the lock. The drawer outlives a disable: the game may still hold a name-tag list in the ring.
-// The world drawer's meshes and texture belong to the render device, so a disable does not free them: `epoch` moves
+// everything behind the lock. The world drawer's meshes and texture belong to the render device, so a disable does not free them: `epoch` moves
 // on each enable and on each world leave the tick sees, and the next render frame whose `world_epoch` is behind it
 // drops them first, on the render thread
 pub struct RuntimeState {
     overlay: Option<Overlay>,
     link: LinkState,
     scan: ScanDriver,
-    drawer: LabelDrawer,
     world: WorldDrawer,
+    material: MaterialPatch,
+    name_tag: NameTagMaterial,
+    // the graphics mode the last drawn frame used, to log a change once
+    last_vibrant: Option<bool>,
     epoch: u64,
     world_epoch: u64,
     // whether the last tick saw a world loaded
@@ -48,15 +49,15 @@ pub struct RuntimeState {
 }
 
 // SAFETY: the raw pointers in the state are blocks of the game heap and addresses of game objects. They are used by
-// the tick, the name-tag hook and the render-level hook, only under the state lock, and nowhere else
+// the tick and the render-level hook, only under the state lock, and nowhere else
 #[allow(unsafe_code)]
 unsafe impl Send for RuntimeState {}
 
 static RUNTIME: OnceLock<LevelsRuntime> = OnceLock::new();
 
 impl LevelsRuntime {
-    // the detours: client update, setup camera, view object, extract name tags, render level
-    pub const HOOK_CAPACITY: usize = 5;
+    // the detours: client update, render level
+    pub const HOOK_CAPACITY: usize = 2;
 
     pub fn new(config_dir: &Path) -> Self {
         Self {
@@ -65,13 +66,14 @@ impl LevelsRuntime {
             entries: OnceLock::new(),
             mesh_calls: OnceLock::new(),
             client: HeldClient::new(),
-            camera: CameraStore::new(),
             state: Mutex::new(RuntimeState {
                 overlay: None,
                 link: LinkState::Off,
                 scan: ScanDriver::new(),
-                drawer: LabelDrawer::new(Self::allocate),
                 world: WorldDrawer::new(MeshFactory::Game(GameMeshFactory::new(Self::allocate))),
+                material: MaterialPatch::new(),
+                name_tag: NameTagMaterial::new(),
+                last_vibrant: None,
                 epoch: 0,
                 world_epoch: 0,
                 in_world: false,
@@ -95,15 +97,11 @@ impl LevelsRuntime {
         &self.latch
     }
 
-    pub fn camera(&self) -> &CameraStore {
-        &self.camera
-    }
-
     pub fn entries(&self) -> Option<&GameEntries> {
         self.entries.get()
     }
 
-    // the game heap's allocator, as a plain function for the ring and the renderer
+    // the game heap's allocator, as a plain function for the mesh factory
     #[allow(unsafe_code)]
     unsafe extern "C" fn allocate(size: usize) -> *mut u8 {
         ModRuntime::get().map_or(std::ptr::null_mut(), |runtime| runtime.api().heap_new(size))
@@ -112,9 +110,7 @@ impl LevelsRuntime {
     // enable: keeps the entries and reaches the manager now; when the manager is not there yet, the first tick tries
     // again. A lock poisoned by a panic before the last disable is cleared
     pub fn start(&self, entries: GameEntries) {
-        if LevelsFeature::is_on(&entries, LevelsFeature::MARKERS)
-            && let Ok(calls) = MeshCalls::new(&entries)
-        {
+        if let Ok(calls) = MeshCalls::new(&entries) {
             let _ = self.mesh_calls.set(calls);
         }
         let _ = self.entries.set(entries);
@@ -168,110 +164,94 @@ impl LevelsRuntime {
         });
     }
 
-    // the body of the name-tag hook: runs after the game made its tags. `tags` is the collection the game returned
-    // and `screen` the ScreenContext of the call
-    #[allow(unsafe_code)]
-    pub fn draw(&self, tags: usize, screen: usize) -> DrawOutcome {
-        let mut outcome = DrawOutcome::Skipped;
-        self.guarded("the name-tag hook", || {
-            let Some(entries) = self.entries.get() else { return };
-            // the tick or the render-level hook may hold the lock; this frame is then skipped
-            let Ok(mut state) = self.state.try_lock() else { return };
-            let Some(heap) = GameHeap::msvc() else { return };
-            let start = FrameStatusReader::now_seconds();
-            let setup = DrawSetup {
-                entries,
-                heap: &heap,
-                allocate: Self::allocate,
-                client: self.client.get(&self.latch),
-                screen: screen as *mut c_void,
-            };
-            let RuntimeState { overlay, drawer, world, sample_us, .. } = &mut *state;
-            let Some(overlay) = overlay.as_mut() else { return };
-            // SAFETY: `tags` is the collection the game just returned from `extractNameTags` and `screen` the
-            // ScreenContext of the same call; the heap is the game's
-            outcome = unsafe { drawer.append(&setup, overlay, self.camera.read(), tags as *mut c_void) };
-            let draw_us = ((FrameStatusReader::now_seconds() - start) * 1_000_000.0) as f32;
-            overlay.timing(*sample_us, draw_us, drawer.resident_bytes().saturating_add(world.resident_bytes()));
-        });
-        outcome
-    }
-
     // the body of the render-level hook: runs after the game drew the level, so the world meshes are depth tested
     // against it. `screen` is the ScreenContext and `frame` the FrameRenderObject of the call
     #[allow(unsafe_code)]
-    pub fn render_world(&self, _renderer: usize, screen: usize, frame: usize) {
+    pub fn render_world(&self, renderer: usize, screen: usize, frame: usize) {
         self.guarded("the render hook", || {
-            let (Some(entries), Some(calls)) = (self.entries.get(), self.mesh_calls.get()) else { return };
-            // the tick or the name-tag hook may hold the lock; this frame is then skipped
+            let (Some(entries), Some(calls)) = (self.entries.get(), self.mesh_calls.get()) else {
+                return;
+            };
+            // the tick may hold the lock; this frame is then skipped
             let Ok(mut state) = self.state.try_lock() else { return };
-            let RuntimeState { overlay, drawer, world, epoch, world_epoch, .. } = &mut *state;
+            let start = FrameStatusReader::now_seconds();
+            let RuntimeState {
+                overlay, world, material, name_tag, last_vibrant, epoch, world_epoch, sample_us, ..
+            } = &mut *state;
             if *world_epoch != *epoch {
                 world.leave();
+                // SAFETY: `renderer` is the `this` of the running `renderLevel` call, a live LevelRenderer
+                let current = unsafe { WireframeMaterial::from_level_renderer(renderer as *const c_void, entries) };
+                // SAFETY: `current` was just read from the live renderer in this call
+                unsafe { material.restore_if_current(current.as_ref(), entries) };
                 *world_epoch = *epoch;
             }
-            let Some(overlay) = overlay.as_mut() else { return };
+            let Some(overlay) = overlay.as_mut() else {
+                return;
+            };
             if !overlay.is_in_world() {
                 world.leave();
+                // SAFETY: `renderer` is the `this` of the running `renderLevel` call, a live LevelRenderer
+                let current = unsafe { WireframeMaterial::from_level_renderer(renderer as *const c_void, entries) };
+                // SAFETY: `current` was just read from the live renderer in this call
+                unsafe { material.restore_if_current(current.as_ref(), entries) };
                 return;
             }
-            let Some(plan) = overlay.world_plan() else { return };
+            let client = self.client.get(&self.latch);
+            // SAFETY: the client is the last tick's, live while the world is, and a world is active in this call
+            let vibrant = client.and_then(|client| unsafe { GraphicsMode::is_vibrant(client.as_ptr(), entries) });
+            let vibrant = vibrant.unwrap_or(false);
+            if *last_vibrant != Some(vibrant) {
+                curia::info!("graphics mode seen, world material chosen", { vibrant: vibrant });
+                *last_vibrant = Some(vibrant);
+            }
+            overlay.set_vibrant(vibrant);
+            let Some(plan) = overlay.world_plan() else {
+                return;
+            };
             // SAFETY: `frame` is the FrameRenderObject of the running `renderLevel` call
             let Some(camera) = (unsafe { FrameRenderObject::camera(frame as *const c_void, calls, entries) }) else {
                 return;
             };
-            let Some(heap) = GameHeap::msvc() else { return };
-            let client = self.client.get(&self.latch);
-            let setup =
-                DrawSetup { entries, heap: &heap, allocate: Self::allocate, client, screen: screen as *mut c_void };
-            // SAFETY: the heap functions are the game's
-            let Some(address) = (unsafe { drawer.renderer(&setup) }) else { return };
-            // SAFETY: the address came from `create` for this game build
-            let Some(renderer) = (unsafe { BaseActorRenderer::from_address(address) }) else { return };
+            // SAFETY: `renderer` is the `this` of the running `renderLevel` call, a live LevelRenderer
+            let wireframe = unsafe { WireframeMaterial::from_level_renderer(renderer as *const c_void, entries) };
+            let draw_material = if vibrant {
+                let Some(wireframe) = wireframe else {
+                    return;
+                };
+                // SAFETY: the material was just read from the live renderer; this is the render thread
+                unsafe { material.apply(&wireframe, entries) };
+                wireframe.material_ptr()
+            } else {
+                // SAFETY: `wireframe` was just read from the live renderer in this call
+                unsafe { material.restore_if_current(wireframe.as_ref(), entries) };
+                // SAFETY: the allocator is the game heap's; this is the render thread inside the render call
+                let Some(tag) = (unsafe { name_tag.material(entries, Self::allocate) }) else { return };
+                tag
+            };
+            // the name-tag material culls back faces; the wireframe material draws both sides
+            world.set_two_sided(!vibrant);
             let world_frame = WorldFrame {
                 calls,
                 screen: screen as *mut c_void,
                 client: client.map_or(std::ptr::null_mut(), NonNull::as_ptr),
-                material: renderer.tag_material(),
+                material: draw_material,
                 camera,
             };
             // SAFETY: the screen and frame are the live arguments of the call, the client the last tick's, the
-            // material the never-freed renderer's; this is the render thread
+            // material the level renderer's wireframe material (Vibrant Visuals) or the never-freed name-tag
+            // material; this is the render thread
             let stats = unsafe { world.render(&world_frame, Some(plan)) };
+            let total_us = ((FrameStatusReader::now_seconds() - start) * 1_000_000.0) as f32;
+            overlay.timing(*sample_us, total_us, world.resident_bytes());
             overlay.world_timing(stats.build_us, stats.draw_us, stats.meshes_built);
         });
     }
 
-    // after `setupCamera`: keeps the direction the render camera faces
-    #[allow(unsafe_code)]
-    pub fn observe_camera(&self, camera: usize) {
-        self.guarded("the camera hook", || {
-            let Some(entries) = self.entries.get() else { return };
-            // SAFETY: `camera` is the Camera argument of the `setupCamera` call that just returned, live for it
-            if let Some(forward) = unsafe { RenderCamera::new(entries).forward(camera as *const c_void) } {
-                self.camera.observe_forward(forward);
-            }
-        });
-    }
-
-    // after `createViewRenderObject`: keeps the camera position of the view object the game just filled
-    #[allow(unsafe_code)]
-    pub fn observe_view(&self, view_object: usize) {
-        self.guarded("the view hook", || {
-            let Some(entries) = self.entries.get() else { return };
-            // SAFETY: `view_object` is the ViewRenderObject buffer that `createViewRenderObject` just filled
-            if let Some(position) = unsafe { RenderCamera::new(entries).view_position(view_object as *const c_void) } {
-                self.camera.observe_position(position);
-            }
-        });
-    }
-
-    // disable, after the hooks are gone: the registration ends and the mod forgets the client and the camera. The
-    // drawer, with its ring, stays: the game may still hold a list in a ring slot
+    // disable, after the hooks are gone: the registration ends and the mod forgets the client
     pub fn stop(&self) {
         self.latch.raise();
         self.client.clear();
-        self.camera.reset();
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.overlay = None;
         state.link = LinkState::Off;

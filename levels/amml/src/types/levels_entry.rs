@@ -1,20 +1,13 @@
 use amml_game::EntryId;
 
-// the entries of the name-tag draw path, the font reads and the world mesh path; the shared ones are in amml-game
+// the entries of the world mesh path and the wireframe material; the shared ones are in amml-game
 pub struct LevelsEntry;
 
 impl LevelsEntry {
-    pub const LEVEL_RENDERER_PLAYER_VTABLE: EntryId = EntryId::new("LevelRendererPlayer.vtable");
-    pub const EXTRACT_NAME_TAGS: EntryId = EntryId::new("LevelRendererPlayer.extractNameTags");
-    pub const NAME_TAG_SIZE: EntryId = EntryId::new("NameTagRenderObject.size");
     pub const SCREEN_CONTEXT_TESSELLATOR: EntryId = EntryId::new("ScreenContext.tessellator");
     pub const BASE_ACTOR_RENDERER_CTOR: EntryId = EntryId::new("BaseActorRenderer.ctor");
     pub const BASE_ACTOR_RENDERER_SIZE: EntryId = EntryId::new("BaseActorRenderer.size");
-    pub const EXTRACT_RENDER_TEXT_OBJECT: EntryId = EntryId::new("BaseActorRenderer._extractRenderTextObject");
-    pub const GET_FONT_HANDLE: EntryId = EntryId::new("ClientInstance.getFontHandle");
-    pub const FONT_HANDLE_DTOR: EntryId = EntryId::new("FontHandle.dtor");
-    pub const FONT_HANDLE_SIZE: EntryId = EntryId::new("FontHandle.size");
-    pub const FONT_GET_LINE_LENGTH: EntryId = EntryId::new("Font.getLineLength");
+    pub const GRAPHICS_MODE_DEFERRED: EntryId = EntryId::new("IOptionRegistry.isGraphicsModeDeferred");
     pub const RENDER_LEVEL: EntryId = EntryId::new("LevelRenderer.renderLevel");
     pub const FRAME_VIEWS: EntryId = EntryId::new("FrameRenderObject.mViews");
     pub const TESSELLATOR_BEGIN: EntryId = EntryId::new("Tessellator.begin");
@@ -43,4 +36,11 @@ impl LevelsEntry {
     pub const SCREEN_CONTEXT_CAMERA: EntryId = EntryId::new("ScreenContext.camera");
     pub const SCREEN_CONTEXT_CONSTANT_BUFFERS: EntryId = EntryId::new("ScreenContext.constantBuffers");
     pub const SCREEN_CONTEXT_CURRENT_SHADER_COLOR: EntryId = EntryId::new("ScreenContext.currentShaderColor");
+    pub const LEVEL_RENDERER_PLAYER: EntryId = EntryId::new("LevelRenderer.mLevelRendererPlayer");
+    pub const WIREFRAME_MATERIAL: EntryId = EntryId::new("LevelRendererCamera.mWireframeMaterial");
+    pub const MATERIAL_INFO_MATERIAL: EntryId = EntryId::new("RenderMaterialInfo.mMaterial");
+    pub const MATERIAL_ENABLE_BLEND: EntryId = EntryId::new("RenderMaterial.mEnableBlend");
+    pub const MATERIAL_DEPTH_WRITE: EntryId = EntryId::new("RenderMaterial.mDepthWriteMask");
+    pub const MATERIAL_BLEND_SOURCE: EntryId = EntryId::new("RenderMaterial.mBlendSource");
+    pub const MATERIAL_BLEND_DESTINATION: EntryId = EntryId::new("RenderMaterial.mBlendDestination");
 }

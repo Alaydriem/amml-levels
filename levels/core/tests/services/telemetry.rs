@@ -22,14 +22,14 @@ fn reports_once_per_two_seconds() {
     for i in 0..=150 {
         let time = i as f64 * FRAME;
         telemetry.frame(time, 8);
-        telemetry.labels(1200, 300);
+        telemetry.labels(1200);
         reports.extend(telemetry.take_report(time));
     }
 
     assert_eq!(reports.len(), 1);
     assert!((reports[0].fps - 60.0).abs() < 0.5);
     assert!((reports[0].columns_per_frame - 8.0).abs() < 1e-3);
-    assert_eq!((reports[0].labels, reports[0].culled), (1200, 300));
+    assert_eq!(reports[0].labels, 1200);
 }
 
 #[test]
@@ -77,21 +77,6 @@ fn window_resets_after_report() {
 
     assert!((first.max_frame_ms - 1500.0).abs() < 1e-2);
     assert!((second.max_frame_ms - 1000.0 / 60.0).abs() < 1e-2);
-}
-
-#[test]
-fn counts_draws_without_a_camera_per_window() {
-    let mut telemetry = Telemetry::new(true, BUDGET);
-    telemetry.frame(0.0, 0);
-    telemetry.camera_missing();
-    telemetry.camera_missing();
-    telemetry.frame(2.0, 0);
-    let first = telemetry.take_report(2.0).expect("first window");
-
-    telemetry.frame(4.0, 0);
-    let second = telemetry.take_report(4.0).expect("second window");
-
-    assert_eq!((first.draws_without_camera, second.draws_without_camera), (2, 0));
 }
 
 #[test]

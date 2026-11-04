@@ -19,8 +19,8 @@ dependencies = [
 
 [[package]]
 name = "amm-abi"
-version = "26.60.0"
-source = "git+https://github.com/Alaydriem/amml-modmanager.git?tag=26.60.0#4158d3a6090ac96021bb6676796f267facc6db7f"
+version = "26.60.5"
+source = "git+https://github.com/Alaydriem/amml-modmanager.git?tag=26.60.5#9cf8636bcea149f736f3691362bf850b91027719"
 dependencies = [
  "amm-core",
  "bytemuck",
@@ -28,8 +28,8 @@ dependencies = [
 
 [[package]]
 name = "amm-client"
-version = "26.60.0"
-source = "git+https://github.com/Alaydriem/amml-modmanager.git?tag=26.60.0#4158d3a6090ac96021bb6676796f267facc6db7f"
+version = "26.60.5"
+source = "git+https://github.com/Alaydriem/amml-modmanager.git?tag=26.60.5#9cf8636bcea149f736f3691362bf850b91027719"
 dependencies = [
  "amm-abi",
  "amm-core",
@@ -43,8 +43,8 @@ dependencies = [
 
 [[package]]
 name = "amm-core"
-version = "26.60.0"
-source = "git+https://github.com/Alaydriem/amml-modmanager.git?tag=26.60.0#4158d3a6090ac96021bb6676796f267facc6db7f"
+version = "26.60.5"
+source = "git+https://github.com/Alaydriem/amml-modmanager.git?tag=26.60.5#9cf8636bcea149f736f3691362bf850b91027719"
 dependencies = [
  "amml-abi",
  "arc-swap",
@@ -59,13 +59,13 @@ dependencies = [
 
 [[package]]
 name = "amml-abi"
-version = "26.60.0"
-source = "git+https://github.com/Alaydriem/amml.git?tag=26.60.0#0b39eeda09d6718fb9d852ebf751943fb2008adc"
+version = "26.60.5"
+source = "git+https://github.com/Alaydriem/amml.git?tag=26.60.5#88e58bcb3673d84d4c14eb493c2a8ac2460787de"
 
 [[package]]
 name = "amml-game"
-version = "26.60.0"
-source = "git+https://github.com/Alaydriem/amml.git?tag=26.60.0#0b39eeda09d6718fb9d852ebf751943fb2008adc"
+version = "26.60.5"
+source = "git+https://github.com/Alaydriem/amml.git?tag=26.60.5#88e58bcb3673d84d4c14eb493c2a8ac2460787de"
 dependencies = [
  "amml-msvc",
  "amml-sdk",
@@ -74,16 +74,16 @@ dependencies = [
 
 [[package]]
 name = "amml-msvc"
-version = "26.60.0"
-source = "git+https://github.com/Alaydriem/amml.git?tag=26.60.0#0b39eeda09d6718fb9d852ebf751943fb2008adc"
+version = "26.60.5"
+source = "git+https://github.com/Alaydriem/amml.git?tag=26.60.5#88e58bcb3673d84d4c14eb493c2a8ac2460787de"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "amml-sdk"
-version = "26.60.0"
-source = "git+https://github.com/Alaydriem/amml.git?tag=26.60.0#0b39eeda09d6718fb9d852ebf751943fb2008adc"
+version = "26.60.5"
+source = "git+https://github.com/Alaydriem/amml.git?tag=26.60.5#88e58bcb3673d84d4c14eb493c2a8ac2460787de"
 dependencies = [
  "amml-abi",
  "thiserror",

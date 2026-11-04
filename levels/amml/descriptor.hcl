@@ -142,6 +142,7 @@ section "label" {
 
   field "label.scale" {
     label   = "Scale"
+    help    = "Pixel size, 0.04 block at 1"
     kind    = { float = { min = 0.25, max = 4.0, step = 0.05 } }
     default = 1.0
     apply   = "Live"
@@ -183,6 +184,14 @@ section "borders" {
     label   = "Chunk edge width"
     kind    = { float = { min = 0.01, max = 0.5, step = 0.01 } }
     default = 0.08
+    apply   = "Live"
+  }
+
+  field "borders.slime_highlight" {
+    label   = "Highlight slime chunks"
+    help    = "Draws the borders of slime chunks in green"
+    kind    = "bool"
+    default = false
     apply   = "Live"
   }
 }

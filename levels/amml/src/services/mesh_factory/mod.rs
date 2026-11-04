@@ -59,6 +59,14 @@ impl MeshFactory {
         }
     }
 
+    /// sets the sides of the quads the next builds write; true when that changes them
+    pub fn set_two_sided(&mut self, two_sided: bool) -> bool {
+        match self {
+            Self::Game(factory) => factory.set_two_sided(two_sided),
+            Self::Fake(factory) => factory.set_two_sided(two_sided),
+        }
+    }
+
     // gives back what the factory holds for drawing; the meshes must be dropped first
     pub fn release(&mut self) {
         match self {

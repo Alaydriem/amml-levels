@@ -9,7 +9,7 @@ pub struct WorldFrame<'a> {
     pub screen: *mut c_void,
     // the `ClientInstance*` of the last tick, for the white texture; null before the first tick
     pub client: *mut c_void,
-    // the depth-tested name-tag material, a `mce::MaterialPtr const*`
+    // the level renderer's depth-tested wireframe material, a `mce::MaterialPtr const*`
     pub material: *const c_void,
     // the camera position of the frame's first view
     pub camera: [f32; 3],

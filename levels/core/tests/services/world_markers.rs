@@ -229,6 +229,22 @@ fn shell_rebuilt_once_per_config_change() {
 }
 
 #[test]
+fn vibrant_rebuilds_the_shells_once_with_the_lines_only() {
+    let mut markers = in_world_markers();
+    press(&mut markers, ManagerSignal::SphereDropPressed, in_world(0));
+    markers.frame(&in_world(1));
+    let first = markers.plan().expect("a plan").shell_version;
+
+    markers.set_vibrant(true);
+    markers.set_vibrant(true);
+
+    let plan = markers.plan().expect("a plan");
+    let fill = (SphereShellBuilder::SEGMENTS * SphereShellBuilder::RINGS) as usize;
+    assert_eq!(plan.shell_version, first + 1);
+    assert_eq!(plan.shell_quads.len(), SphereShellBuilder::pair_quad_count() - 2 * fill);
+}
+
+#[test]
 fn instances_buffer_is_bounded() {
     let spheres = SpheresConfig { max_markers: 64, ..SpheresConfig::default() };
     let mut markers = WorldMarkers::new(BordersConfig::default(), spheres);

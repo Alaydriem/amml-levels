@@ -4,6 +4,7 @@ use crate::structs::draw::ColorQuad;
 use crate::structs::frame::FrameStatus;
 use crate::structs::manager::ManagerSignal;
 use crate::structs::marker::{BorderMode, MarkerInstance, WorldDrawPlan};
+use crate::structs::world::BlockPos;
 
 const FULL_TURN: f64 = 360.0;
 
@@ -95,6 +96,9 @@ impl WorldMarkers {
             return None;
         }
         Some(WorldDrawPlan {
+            label_origin: BlockPos::default(),
+            label_version: 0,
+            label_quads: &[],
             border_origin: self.planner.origin(),
             border_version: self.planner.version(),
             border_quads: self.planner.quads(),
@@ -115,6 +119,15 @@ impl WorldMarkers {
         if is_shape_changed {
             self.rebuild_shells();
         }
+    }
+
+    // the graphics mode: under Vibrant Visuals the shells lose their translucent fill and the border lines get
+    // thinner and fainter. A change rebuilds what it touches
+    pub fn set_vibrant(&mut self, vibrant: bool) {
+        if self.builder.set_fill(!vibrant) {
+            self.rebuild_shells();
+        }
+        self.planner.set_vibrant(vibrant);
     }
 
     pub fn is_active(&self) -> bool {

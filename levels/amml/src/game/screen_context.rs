@@ -131,9 +131,8 @@ impl ScreenContext {
     }
 
     /// Runs `draw` with the context's current shader colour set to opaque white, then puts the colour back; both
-    /// writes mark it dirty. The name-tag material multiplies its output by this colour, and the game's name-tag pass
-    /// leaves it at the colour of the last tag background, which is transparent for the light labels. A null colour
-    /// pointer runs `draw` with the colour as it is
+    /// writes mark it dirty. The wireframe material multiplies its output by this colour, and the game's own passes
+    /// can leave it changed, while the overlay draws in white. A null colour pointer runs `draw` with the colour as it is
     #[allow(unsafe_code)]
     pub fn with_white_shader_color(&self, draw: impl FnOnce()) {
         let color = self.mesh_fields().current_shader_color;

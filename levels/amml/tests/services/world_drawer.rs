@@ -1,4 +1,4 @@
-use alaydriem_levels::services::{FakeMeshFactory, MeshFactory, MeshSlot, WorldDrawer};
+use alaydriem_levels::services::{FakeMeshFactory, MeshFactory, MeshSlot, QuadWriter, WorldDrawer};
 use alaydriem_levels::types::{MeshCalls, WorldFrame, WorldSlot};
 use levels_core::config::BordersConfig;
 use levels_core::services::ChunkBorderPlanner;
@@ -39,6 +39,9 @@ fn frame(calls: &MeshCalls) -> WorldFrame<'_> {
 
 fn plan(border_version: u64, shell_version: u64, instances: &[MarkerInstance]) -> WorldDrawPlan<'_> {
     WorldDrawPlan {
+        label_origin: BlockPos { x: 30_000, y: 63, z: 29_999 },
+        label_version: 1,
+        label_quads: &[],
         border_origin: BlockPos { x: 29_984, y: -64, z: 29_984 },
         border_version,
         border_quads: &QUADS,
@@ -54,7 +57,11 @@ fn border_plan(border_version: u64, border_quads: &[ColorQuad]) -> WorldDrawPlan
 }
 
 fn border_draws(drawer: &WorldDrawer) -> usize {
-    fake(drawer).draws().iter().filter(|(slot, _)| *slot == WorldSlot::Border).count()
+    slot_draws(drawer, WorldSlot::Border)
+}
+
+fn slot_draws(drawer: &WorldDrawer, wanted: WorldSlot) -> usize {
+    fake(drawer).draws().iter().filter(|(slot, _)| *slot == wanted).count()
 }
 
 fn fake(drawer: &WorldDrawer) -> &FakeMeshFactory {
@@ -168,6 +175,9 @@ fn a_grid_plan_fits_one_border_mesh() {
     planner.cycle();
     planner.update(BlockPos { x: 0, y: 70, z: 0 }, 0);
     assert!(planner.quads().len() <= MeshSlot::MAX_QUADS);
+    assert!(MeshSlot::MAX_QUADS * QuadWriter::MAX_VERTICES_PER_QUAD <= usize::from(u16::MAX));
+    assert_eq!(MeshSlot::meshes_for(MeshSlot::MAX_QUADS), 1);
+    assert_eq!(MeshSlot::meshes_for(MeshSlot::MAX_QUADS + 1), 2);
 
     // SAFETY: the fake factory touches no game object
     let stats = unsafe { drawer.render(&frame(&calls), Some(border_plan(planner.version(), planner.quads()))) };
@@ -175,7 +185,7 @@ fn a_grid_plan_fits_one_border_mesh() {
     assert_eq!(WorldDrawer::BORDER_MESHES, 1);
     assert_eq!(stats.meshes_built, 1);
     assert_eq!(border_draws(&drawer), 1);
-    let vertices = 8 * planner.quads().len() as u64;
+    let vertices = QuadWriter::VERTICES_PER_QUAD as u64 * planner.quads().len() as u64;
     assert!(drawer.resident_bytes() >= vertices * 24, "the mesh holds every vertex");
 }
 
@@ -249,4 +259,85 @@ fn a_busy_build_is_tried_each_frame_and_the_stall_is_logged_once() {
     assert_eq!(fake(&drawer).builds(), frames + 1);
     assert_eq!(LogCapture::count(STALLED), 1);
     assert_eq!(LogCapture::count(FAILED_ONCE), 0);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn label_slot_builds_and_draws_with_the_plan() {
+    let calls = FakeMeshEntries::calls();
+    let mut drawer = drawer();
+    let labeled = WorldDrawPlan { label_quads: &QUADS, ..border_plan(1, &[]) };
+
+    // SAFETY: the fake factory touches no game object
+    let first =
+        unsafe { drawer.render(&frame(&calls), Some(WorldDrawPlan { label_quads: &QUADS, ..border_plan(1, &[]) })) };
+    // SAFETY: as above
+    let same = unsafe { drawer.render(&frame(&calls), Some(labeled)) };
+
+    assert_eq!(first.meshes_built, 1);
+    assert_eq!(same.meshes_built, 0, "the same label version is not built again");
+    let draws = fake(&drawer).draws();
+    assert_eq!(draws[0].0, WorldSlot::Label, "the labels are drawn first");
+    assert_eq!(draws[0].1, [-0.25, -1.0, -1.75]);
+    assert_eq!(slot_draws(&drawer, WorldSlot::Label), 1);
+    assert_eq!(WorldDrawer::LABEL_MESHES, MeshSlot::meshes_for(16 * levels_core::config::MAX_LABELS as usize));
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn changing_the_sides_rebuilds_every_slot_and_the_same_sides_rebuild_nothing() {
+    let calls = FakeMeshEntries::calls();
+    let mut drawer = drawer();
+    let plan = || WorldDrawPlan { label_quads: &QUADS, ..border_plan(1, &QUADS) };
+    // SAFETY: the fake factory touches no game object
+    let first = unsafe { drawer.render(&frame(&calls), Some(plan())) };
+    assert_eq!(first.meshes_built, 2);
+
+    drawer.set_two_sided(false);
+    // SAFETY: as above
+    let same = unsafe { drawer.render(&frame(&calls), Some(plan())) };
+    assert_eq!(same.meshes_built, 0);
+
+    drawer.set_two_sided(true);
+    // SAFETY: as above
+    let changed = unsafe { drawer.render(&frame(&calls), Some(plan())) };
+    assert_eq!(changed.meshes_built, 2);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn label_quads_past_one_mesh_split_into_two() {
+    let calls = FakeMeshEntries::calls();
+    let mut drawer = drawer();
+    let quads = vec![QUAD; MeshSlot::MAX_QUADS + 1];
+    let split = WorldDrawPlan { label_quads: &quads, ..border_plan(1, &[]) };
+
+    // SAFETY: the fake factory touches no game object
+    let stats = unsafe { drawer.render(&frame(&calls), Some(split)) };
+
+    assert_eq!(stats.meshes_built, 2);
+    assert_eq!(slot_draws(&drawer, WorldSlot::Label), 2);
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn a_hidden_hud_plan_empties_the_label_slot_and_the_next_version_rebuilds_it() {
+    let calls = FakeMeshEntries::calls();
+    let mut drawer = drawer();
+    let shown = || WorldDrawPlan { label_quads: &QUADS, ..border_plan(1, &[]) };
+    let hidden = || WorldDrawPlan { label_version: 0, label_quads: &[], ..border_plan(1, &[]) };
+    // SAFETY: the fake factory touches no game object
+    unsafe { drawer.render(&frame(&calls), Some(shown())) };
+    assert!(drawer.resident_bytes() > 0);
+
+    // SAFETY: as above
+    let gone = unsafe { drawer.render(&frame(&calls), Some(hidden())) };
+
+    assert_eq!(gone.meshes_built, 0);
+    assert_eq!(slot_draws(&drawer, WorldSlot::Label), 0);
+    assert_eq!(drawer.resident_bytes(), 0);
+    // SAFETY: as above
+    let back = unsafe { drawer.render(&frame(&calls), Some(WorldDrawPlan { label_version: 2, ..shown() })) };
+    assert_eq!(back.meshes_built, 1);
+    assert_eq!(slot_draws(&drawer, WorldSlot::Label), 1);
 }

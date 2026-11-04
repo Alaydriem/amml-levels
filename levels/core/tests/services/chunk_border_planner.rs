@@ -1,5 +1,5 @@
 use levels_core::config::BordersConfig;
-use levels_core::services::ChunkBorderPlanner;
+use levels_core::services::{ChunkBorderPlanner, SlimeChunks};
 use levels_core::structs::draw::ColorQuad;
 use levels_core::structs::marker::BorderMode;
 use levels_core::structs::world::BlockPos;
@@ -163,6 +163,34 @@ fn restyle_rebuilds_with_new_color() {
 }
 
 #[test]
+fn vibrant_rebuilds_with_thinner_and_fainter_lines_once() {
+    let config = BordersConfig { line_color: [1.0, 0.0, 0.0, 0.5], ..BordersConfig::default() };
+    let mut planner = ChunkBorderPlanner::new(config.clone());
+    planner.cycle();
+    planner.update(at(0, 0), 0);
+    let version = planner.version();
+    let widest = |planner: &ChunkBorderPlanner| {
+        planner
+            .quads()
+            .iter()
+            .filter(|q| is_horizontal(q))
+            .map(|q| (q.corners[2][1] - q.corners[0][1]).abs())
+            .fold(0.0, f32::max)
+    };
+    let normal_width = widest(&planner);
+
+    planner.set_vibrant(true);
+    assert!(planner.update(at(0, 0), 0));
+    planner.set_vibrant(true);
+    assert!(!planner.update(at(0, 0), 0));
+
+    assert_eq!(planner.version(), version + 1);
+    assert!(planner.quads().iter().any(|q| q.rgba == [255, 0, 0, 64]));
+    assert!(planner.quads().iter().all(|q| q.rgba != [255, 0, 0, 128]));
+    assert!(near(widest(&planner), normal_width * ChunkBorderPlanner::VIBRANT_WIDTH_SCALE));
+}
+
+#[test]
 fn buffer_does_not_grow() {
     let mut planner = planner(1);
     planner.update(at(0, 0), 0);
@@ -195,6 +223,94 @@ fn no_wall_lies_on_a_block_face() {
             assert!(!near(plane, plane.round()));
         }
     }
+}
+
+const SLIME_RGB: [u8; 3] = [77, 255, 77];
+
+fn slime_planner(steps: usize, highlight: bool, feet: BlockPos) -> ChunkBorderPlanner {
+    let config = BordersConfig { slime_highlight: highlight, ..BordersConfig::default() };
+    let mut planner = ChunkBorderPlanner::new(config);
+    for _ in 0..steps {
+        planner.cycle();
+    }
+    planner.update(feet, 0);
+    planner
+}
+
+// true when a chunk inside the drawn grid that touches the quad is a slime chunk
+fn touches_slime(planner: &ChunkBorderPlanner, quad: &ColorQuad, feet: BlockPos, radius: i32) -> bool {
+    let origin = planner.origin();
+    let mid = |axis: usize| quad.corners.iter().map(|c| c[axis]).sum::<f32>() / 4.0;
+    let (x, z) = (mid(0) + origin.x as f32, mid(2) + origin.z as f32);
+    let fixed_is_x = quad.corners.iter().all(|c| c[0] == quad.corners[0][0]);
+    let (fixed, along) = if fixed_is_x { (x, z) } else { (z, x) };
+    let on_chunk_line = !is_horizontal(quad) && near(along, along.round()) && along.round() as i32 % 16 == 0;
+    let along_offsets: &[f32] = if on_chunk_line { &[-0.5, 0.5] } else { &[0.0] };
+    let (cx, cz) = (feet.x.div_euclid(16), feet.z.div_euclid(16));
+    let in_grid = |chunk_x: i32, chunk_z: i32| (chunk_x - cx).abs() <= radius && (chunk_z - cz).abs() <= radius;
+    [-0.5f32, 0.5].iter().any(|df| {
+        along_offsets.iter().any(|da| {
+            let a = ((fixed.round() + df).floor() as i32).div_euclid(16);
+            let b = ((along + da).floor() as i32).div_euclid(16);
+            let (chunk_x, chunk_z) = if fixed_is_x { (a, b) } else { (b, a) };
+            in_grid(chunk_x, chunk_z) && SlimeChunks::is_slime(chunk_x, chunk_z)
+        })
+    })
+}
+
+#[test]
+fn single_mode_in_a_slime_chunk_is_all_green() {
+    let feet = at(-8, 8);
+    let planner = slime_planner(1, true, feet);
+    assert!(planner.quads().iter().all(|q| q.rgba[..3] == SLIME_RGB));
+}
+
+#[test]
+fn single_mode_outside_a_slime_chunk_has_no_green() {
+    let feet = at(8, 8);
+    let planner = slime_planner(1, true, feet);
+    assert!(planner.quads().iter().all(|q| q.rgba[..3] != SLIME_RGB));
+}
+
+#[test]
+fn grid_segments_are_green_when_a_grid_chunk_beside_them_is_slime() {
+    for feet in [at(8, 8), at(-8, 8), at(1750, 50), at(-300, -700)] {
+        let planner = slime_planner(2, true, feet);
+        let mut greens = 0;
+        for quad in planner.quads() {
+            let expected = touches_slime(&planner, quad, feet, 1);
+            assert_eq!(quad.rgba[..3] == SLIME_RGB, expected, "at {feet:?}, quad {quad:?}");
+            greens += usize::from(expected);
+        }
+        if feet == at(8, 8) {
+            assert!(greens > 0);
+        }
+    }
+}
+
+#[test]
+fn slime_chunks_keep_the_original_colors_when_highlight_is_off() {
+    for steps in [1, 2] {
+        let planner = slime_planner(steps, false, at(-8, 8));
+        assert!(planner.quads().iter().all(|q| q.rgba[..3] != SLIME_RGB));
+    }
+}
+
+#[test]
+fn turning_highlight_on_rebuilds_the_mesh() {
+    let mut planner = slime_planner(1, false, at(-8, 8));
+    let version = planner.version();
+    planner.restyle(BordersConfig { slime_highlight: true, ..BordersConfig::default() });
+    assert!(planner.update(at(-8, 8), 0));
+    assert_eq!(planner.version(), version + 1);
+    assert!(planner.quads().iter().all(|q| q.rgba[..3] == SLIME_RGB));
+}
+
+#[test]
+fn edge_lines_keep_the_edge_opacity_in_green() {
+    let planner = slime_planner(1, true, at(-8, 8));
+    let edge_alpha = (BordersConfig::default().edge_alpha * 255.0).round() as u8;
+    assert!(planner.quads().iter().any(|q| q.rgba == [77, 255, 77, edge_alpha]));
 }
 
 #[test]

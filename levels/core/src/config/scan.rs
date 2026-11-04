@@ -4,13 +4,10 @@ pub const MAX_RADIUS: u32 = 32;
 // a column of 2r + 1 blocks holds at most r + 1 surfaces
 pub const MAX_COLUMN_SURFACES: usize = MAX_RADIUS as usize + 1;
 
-// game name tags the drawn list may hold beside max_labels; more game tags lower the label cap
-pub const GAME_TAG_HEADROOM: usize = 256;
-
 // the column square at MAX_RADIUS; no frame can ask for more columns than this
 const MAX_COLUMNS_PER_FRAME: u32 = (2 * MAX_RADIUS + 1) * (2 * MAX_RADIUS + 1);
 // every surface the label grid can hold at MAX_RADIUS; more labels than this can never be drawn
-const MAX_LABELS: u32 = MAX_COLUMNS_PER_FRAME * MAX_COLUMN_SURFACES as u32;
+pub const MAX_LABELS: u32 = MAX_COLUMNS_PER_FRAME * MAX_COLUMN_SURFACES as u32;
 
 const DEFAULT_PASS_SECONDS: f32 = 0.25;
 const MAX_PASS_SECONDS: f32 = 5.0;

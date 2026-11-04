@@ -3,20 +3,18 @@ use std::ffi::c_void;
 use std::sync::Mutex;
 
 use alaydriem_levels::LevelsMod;
-use alaydriem_levels::types::{LevelsEntry, LevelsFeature};
+use alaydriem_levels::types::LevelsEntry;
 use amml_game::{CameraLayout, EntryId, GameError};
 use amml_sdk::amml_abi::{AMML_API_VERSION, AmmlApi, AmmlLogLevel, AmmlStatus, AmmlStr};
 use amml_sdk::{AmmlMod, Api};
 
-use crate::support::{FakeResolver, FakeVtable};
+use crate::support::FakeResolver;
 
 // the size entries hold the sizes of the mirrors, as both game builds derive them
 fn value(id: EntryId, other: u64) -> u64 {
     match id {
-        LevelsEntry::BASE_ACTOR_RENDERER_SIZE => 0xB8,
-        LevelsEntry::NAME_TAG_SIZE => 0x90,
-        LevelsEntry::FONT_HANDLE_SIZE => 0x50,
         LevelsEntry::MESH_SIZE => 0x260,
+        LevelsEntry::BASE_ACTOR_RENDERER_SIZE => 0xB8,
         LevelsEntry::TESSELLATOR_TESSELLATING => 0x2A0,
         LevelsEntry::RESOURCE_LOCATION_FULL_HASH => 0x30,
         LevelsEntry::IMAGE_BUFFER_DESCRIPTION => 0x18,
@@ -31,17 +29,9 @@ fn value(id: EntryId, other: u64) -> u64 {
     }
 }
 
-// every required entry with a value; the optional entries are left out
+// every required entry with a value
 fn required() -> Vec<(EntryId, u64)> {
     LevelsMod::REQUIRED.iter().enumerate().map(|(index, id)| (*id, value(*id, 0x100 + index as u64))).collect()
-}
-
-fn font() -> Vec<(EntryId, u64)> {
-    LevelsFeature::entries(LevelsFeature::FONT).iter().map(|id| (*id, value(*id, 0x20))).collect()
-}
-
-fn markers() -> Vec<(EntryId, u64)> {
-    LevelsFeature::entries(LevelsFeature::MARKERS).iter().map(|id| (*id, value(*id, 0x40))).collect()
 }
 
 fn with(values: Vec<(EntryId, u64)>, id: EntryId, value: u64) -> Vec<(EntryId, u64)> {
@@ -49,89 +39,72 @@ fn with(values: Vec<(EntryId, u64)>, id: EntryId, value: u64) -> Vec<(EntryId, u
 }
 
 #[test]
-fn without_the_font_entries_the_font_feature_is_off_with_one_line_and_the_mod_still_resolves() {
-    let values: Vec<_> = required().into_iter().chain(markers()).collect();
-
-    let entries = LevelsMod::resolve(&FakeResolver::new(&values)).unwrap();
-
-    let off: Vec<&str> = entries.off_features().into_iter().map(|(feature, _)| feature).collect();
-    let lines = LevelsMod::off_lines(&entries);
-
-    assert_eq!(off, [LevelsFeature::FONT]);
-    assert_eq!(lines.len(), 1);
-    assert!(lines[0].starts_with("font is off"), "{lines:?}");
-    assert!(lines[0].contains("fixed width table"), "{lines:?}");
-    assert!(!LevelsFeature::is_on(&entries, LevelsFeature::FONT));
-}
-
-#[test]
-fn with_every_entry_no_feature_is_off() {
-    let values: Vec<_> = required().into_iter().chain(font()).chain(markers()).collect();
-
-    let entries = LevelsMod::resolve(&FakeResolver::new(&values)).unwrap();
-
-    assert!(entries.off_features().is_empty());
-    assert!(LevelsMod::off_lines(&entries).is_empty());
-    assert!(LevelsFeature::is_on(&entries, LevelsFeature::FONT));
-    assert!(LevelsFeature::is_on(&entries, LevelsFeature::MARKERS));
-}
-
-#[test]
-fn a_font_handle_size_that_is_not_the_mirror_size_turns_the_font_feature_off_with_one_line() {
-    let values: Vec<_> =
-        required().into_iter().chain(with(font(), LevelsEntry::FONT_HANDLE_SIZE, 0x58)).chain(markers()).collect();
-
-    let entries = LevelsMod::resolve(&FakeResolver::new(&values)).unwrap();
-    let lines = LevelsMod::off_lines(&entries);
-
-    assert!(!LevelsFeature::is_on(&entries, LevelsFeature::FONT));
-    assert_eq!(lines.len(), 1);
-    assert!(lines[0].starts_with("font is off (FontHandle.size is 0x58, the mirror is 0x50)"), "{lines:?}");
-    assert!(LevelsMod::layout_faults(&entries).is_empty());
-}
-
-#[test]
-fn a_mesh_size_that_fits_no_mirror_turns_markers_off_with_one_line_and_keeps_labels() {
-    let values: Vec<_> =
-        required().into_iter().chain(font()).chain(with(markers(), LevelsEntry::MESH_SIZE, 0x250)).collect();
-
-    let entries = LevelsMod::resolve(&FakeResolver::new(&values)).unwrap();
-    let lines = LevelsMod::off_lines(&entries);
-
-    assert!(!LevelsFeature::is_on(&entries, LevelsFeature::MARKERS));
-    assert_eq!(
-        lines,
-        [
-            "markers is off (Mesh.size is 0x250, the mirror expects 0x278); chunk borders and spawn spheres are not drawn"
-        ]
-    );
-    assert!(LevelsMod::layout_faults(&entries).is_empty());
-}
-
-#[test]
-fn a_required_size_that_is_not_the_mirror_size_is_a_layout_fault() {
-    for (id, size) in [(LevelsEntry::BASE_ACTOR_RENDERER_SIZE, 0xC0), (LevelsEntry::NAME_TAG_SIZE, 0x98)] {
-        let entries = LevelsMod::resolve(&FakeResolver::new(&with(required(), id, size))).unwrap();
-
-        let faults = LevelsMod::layout_faults(&entries);
-
-        assert_eq!(faults.len(), 1, "{id:?}");
-        assert!(faults[0].starts_with(id.as_str()), "{faults:?}");
-    }
+fn with_every_required_entry_the_wanted_list_is_met_and_no_layout_is_at_fault() {
     let entries = LevelsMod::resolve(&FakeResolver::new(&required())).unwrap();
+
     assert!(LevelsMod::layout_faults(&entries).is_empty());
 }
 
 #[test]
-fn a_missing_required_entry_refuses_the_enable() {
-    let values: Vec<_> =
-        required().into_iter().filter(|(id, _)| *id != LevelsEntry::EXTRACT_RENDER_TEXT_OBJECT).collect();
+fn the_wanted_list_has_no_name_tag_or_font_entry() {
+    let names: Vec<&str> = LevelsMod::wanted().iter().map(|(id, _)| id.as_str()).collect();
 
-    let result = LevelsMod::resolve(&FakeResolver::new(&values));
+    for gone in
+        ["extractNameTags", "NameTagRenderObject", "_extractRenderTextObject", "FontHandle", "Font.", "setupCamera"]
+    {
+        assert!(names.iter().all(|name| !name.contains(gone)), "{gone} is still wanted");
+    }
+    assert!(names.contains(&"LevelRenderer.renderLevel"));
+    assert!(names.contains(&"LevelRendererCamera.mWireframeMaterial"));
+}
 
-    assert!(
-        matches!(result, Err(GameError::MissingEntry { id }) if id == "BaseActorRenderer._extractRenderTextObject")
-    );
+// the world draw reads the camera position from the frame's first view through these two entries; without them
+// every frame is skipped and nothing is drawn
+#[test]
+fn the_frame_camera_entries_are_wanted() {
+    let names: Vec<&str> = LevelsMod::wanted().iter().map(|(id, _)| id.as_str()).collect();
+
+    assert!(names.contains(&EntryId::VIEW_RENDER_OBJECT_VIEW_DATA.as_str()));
+    assert!(names.contains(&EntryId::VIEW_RENDER_DATA_CAMERA_POS.as_str()));
+}
+
+#[test]
+fn the_manifest_lists_every_required_entry() {
+    let manifest = include_str!("../amml.hcl");
+
+    for id in LevelsMod::REQUIRED {
+        assert!(manifest.contains(&format!("\"{}\"", id.as_str())), "{} is not in amml.hcl", id.as_str());
+    }
+}
+
+#[test]
+fn a_mesh_size_that_fits_no_mirror_is_a_layout_fault() {
+    let entries = LevelsMod::resolve(&FakeResolver::new(&with(required(), LevelsEntry::MESH_SIZE, 0x250))).unwrap();
+
+    let faults = LevelsMod::layout_faults(&entries);
+
+    assert_eq!(faults, ["Mesh.size is 0x250, the mirror expects 0x278"]);
+}
+
+#[test]
+fn a_base_actor_renderer_size_that_fits_no_mirror_is_a_layout_fault() {
+    let values = with(required(), LevelsEntry::BASE_ACTOR_RENDERER_SIZE, 0xC0);
+    let entries = LevelsMod::resolve(&FakeResolver::new(&values)).unwrap();
+
+    let faults = LevelsMod::layout_faults(&entries);
+
+    assert_eq!(faults, ["BaseActorRenderer.size is 0xc0, the mirror is 0xb8"]);
+}
+
+#[test]
+fn a_missing_mesh_entry_refuses_the_enable() {
+    for missing in [LevelsEntry::RENDER_LEVEL, LevelsEntry::MESH_RENDER, LevelsEntry::WIREFRAME_MATERIAL] {
+        let values: Vec<_> = required().into_iter().filter(|(id, _)| *id != missing).collect();
+
+        let result = LevelsMod::resolve(&FakeResolver::new(&values));
+
+        assert!(matches!(result, Err(GameError::MissingEntry { id }) if id == missing.as_str()), "{missing:?}");
+    }
 }
 
 // a loader table whose functions are fakes: `resolve` answers from `VALUES`, `hook` and `unhook` record their calls
@@ -218,131 +191,61 @@ impl FakeLoader {
 }
 
 impl FakeLoader {
-    // installs `entries` as the loader's values, with a fake vtable whose extractNameTags slot holds a function;
-    // gives that function's address
-    fn install(entries: Vec<(EntryId, u64)>) -> usize {
-        extern "C" fn dummy() {}
-        let function = dummy as extern "C" fn() as usize;
-        let vtable = FakeVtable::leak(&[0, function]);
+    // installs `entries` as the loader's values
+    fn install(entries: Vec<(EntryId, u64)>) {
         let mut values: HashMap<String, u64> = HashMap::new();
         for (id, value) in entries {
             values.insert(id.as_str().to_string(), value);
         }
-        values.insert(LevelsEntry::LEVEL_RENDERER_PLAYER_VTABLE.as_str().to_string(), vtable as usize as u64);
-        values.insert(LevelsEntry::EXTRACT_NAME_TAGS.as_str().to_string(), 2);
         *VALUES.lock().unwrap() = Some(values);
-        function
+        HOOKS.lock().unwrap().clear();
+        UNHOOKED.lock().unwrap().clear();
+        *REFUSED.lock().unwrap() = None;
     }
 }
 
+fn address(id: EntryId) -> u64 {
+    0x100 + LevelsMod::REQUIRED.iter().position(|entry| *entry == id).unwrap() as u64
+}
+
 #[test]
-fn enable_hooks_the_three_readers_after_the_writers_and_the_name_tag_list_as_a_writer() {
-    let function = FakeLoader::install(required());
+fn enable_hooks_the_update_and_the_level_render_after_the_writers() {
+    FakeLoader::install(required());
     let api = FakeLoader::api();
 
     LevelsMod::load(&api).unwrap();
     LevelsMod::enable(&api).unwrap();
 
     let hooks = HOOKS.lock().unwrap().clone();
-    let update =
-        0x100 + LevelsMod::REQUIRED.iter().position(|id| *id == EntryId::CLIENT_INSTANCE_UPDATE).unwrap() as u64;
-    let setup = 0x100
-        + LevelsMod::REQUIRED.iter().position(|id| *id == EntryId::LEVEL_RENDERER_PLAYER_SETUP_CAMERA).unwrap() as u64;
-    let view = 0x100
-        + LevelsMod::REQUIRED
-            .iter()
-            .position(|id| *id == EntryId::LEVEL_RENDERER_PLAYER_CREATE_VIEW_RENDER_OBJECT)
-            .unwrap() as u64;
-    assert_eq!(hooks, [(update, 100), (setup, 100), (view, 100), (function as u64, 0)]);
+    assert_eq!(hooks, [(address(EntryId::CLIENT_INSTANCE_UPDATE), 100), (address(LevelsEntry::RENDER_LEVEL), 100)]);
 
     LevelsMod::disable(&api);
 
-    assert_eq!(UNHOOKED.lock().unwrap().clone(), [4, 3, 2, 1]);
+    assert_eq!(UNHOOKED.lock().unwrap().clone(), [2, 1]);
 }
 
 #[test]
-fn missing_render_entry_turns_markers_off_and_keeps_labels() {
-    let values: Vec<_> = required()
-        .into_iter()
-        .chain(font())
-        .chain(markers().into_iter().filter(|(id, _)| *id != LevelsEntry::RENDER_LEVEL))
-        .collect();
-
-    let entries = LevelsMod::resolve(&FakeResolver::new(&values)).unwrap();
-    let lines = LevelsMod::off_lines(&entries);
-
-    assert!(!LevelsFeature::is_on(&entries, LevelsFeature::MARKERS));
-    assert!(LevelsFeature::is_on(&entries, LevelsFeature::FONT));
-    assert_eq!(lines.len(), 1, "{lines:?}");
-    assert!(lines[0].starts_with("markers is off ("), "{lines:?}");
-    assert!(lines[0].contains("LevelRenderer.renderLevel"), "{lines:?}");
-    assert!(lines[0].ends_with("; chunk borders and spawn spheres are not drawn"), "{lines:?}");
-    assert!(LevelsMod::layout_faults(&entries).is_empty());
-    assert!(LevelsFeature::entries(LevelsFeature::MARKERS).iter().all(|id| !LevelsMod::REQUIRED.contains(id)));
-
-    FakeLoader::install(values);
+fn a_layout_that_does_not_fit_refuses_the_enable_and_installs_no_hook() {
+    FakeLoader::install(with(required(), LevelsEntry::MESH_SIZE, 0x250));
     let api = FakeLoader::api();
+
     LevelsMod::load(&api).unwrap();
 
-    assert!(LevelsMod::enable(&api).is_ok());
-
-    LevelsMod::disable(&api);
+    assert!(LevelsMod::enable(&api).is_err());
+    assert!(HOOKS.lock().unwrap().is_empty());
 }
 
 #[test]
-fn markers_off_installs_four_hooks() {
-    FakeLoader::install(required().into_iter().chain(font()).collect());
+fn a_refused_render_hook_refuses_the_enable_and_removes_the_update_hook() {
+    FakeLoader::install(required());
+    *REFUSED.lock().unwrap() = Some(address(LevelsEntry::RENDER_LEVEL));
     let api = FakeLoader::api();
 
     LevelsMod::load(&api).unwrap();
-    LevelsMod::enable(&api).unwrap();
 
-    assert_eq!(HOOKS.lock().unwrap().len(), 4);
-
-    LevelsMod::disable(&api);
-
-    assert_eq!(UNHOOKED.lock().unwrap().clone(), [4, 3, 2, 1]);
-}
-
-#[test]
-fn markers_on_installs_five_hooks() {
-    let values: Vec<_> = required().into_iter().chain(font()).chain(markers()).collect();
-    let render = values.iter().find(|(id, _)| *id == LevelsEntry::RENDER_LEVEL).unwrap().1;
-    FakeLoader::install(values);
-    let api = FakeLoader::api();
-
-    LevelsMod::load(&api).unwrap();
-    LevelsMod::enable(&api).unwrap();
-
-    let hooks = HOOKS.lock().unwrap().clone();
-    assert_eq!(hooks.len(), 5);
-    assert_eq!(hooks[4], (render, 100));
-
-    LevelsMod::disable(&api);
-
-    assert_eq!(UNHOOKED.lock().unwrap().clone(), [5, 4, 3, 2, 1]);
-}
-
-#[test]
-fn a_failed_render_hook_turns_markers_off_with_one_line_and_keeps_the_light_numbers() {
-    let values: Vec<_> = required().into_iter().chain(font()).chain(markers()).collect();
-    let render = values.iter().find(|(id, _)| *id == LevelsEntry::RENDER_LEVEL).unwrap().1;
-    *REFUSED.lock().unwrap() = Some(render);
-    FakeLoader::install(values);
-    let api = FakeLoader::api();
-
-    LevelsMod::load(&api).unwrap();
-    assert!(LevelsMod::enable(&api).is_ok());
-
-    assert_eq!(HOOKS.lock().unwrap().len(), 4);
-    let off: Vec<String> =
-        LOGGED.lock().unwrap().iter().filter(|line| line.starts_with("markers is off (")).cloned().collect();
-    assert_eq!(off.len(), 1, "{off:?}");
-    assert!(off[0].contains("render-level hook"), "{off:?}");
-
-    LevelsMod::disable(&api);
-
-    assert_eq!(UNHOOKED.lock().unwrap().clone(), [4, 3, 2, 1]);
+    assert!(LevelsMod::enable(&api).is_err());
+    assert_eq!(HOOKS.lock().unwrap().len(), 1);
+    assert_eq!(UNHOOKED.lock().unwrap().clone(), [1]);
 }
 
 #[test]

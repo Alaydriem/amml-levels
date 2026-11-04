@@ -1,9 +1,5 @@
-mod camera_store;
 mod game_strings;
-mod label_drawer;
-mod label_ring;
-mod label_text;
-mod name_tag_list;
+mod material_patch;
 mod overlay;
 mod quad_writer;
 mod surface_sampler;

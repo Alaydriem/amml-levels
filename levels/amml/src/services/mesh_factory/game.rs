@@ -6,7 +6,7 @@ use crate::services::{GameStrings, QuadWriter};
 use crate::types::{BuildStall, GameString, MeshAttempt, MeshBuild, WorldFrame, WorldMesh, WorldSlot};
 
 /// Builds and draws the world meshes through the game: quads into the screen's tessellator, the mesh drawn with the
-/// name-tag material and the mod's white texture. The texture is a render-device object, loaded on the first frame
+/// level renderer's wireframe material and the mod's white texture. The texture is a render-device object, loaded on the first frame
 /// and released with the meshes on the render thread. The texture path and the mesh debug names reach the game as
 /// game-heap copies, never as pointers into the mod's image
 pub struct GameMeshFactory {
@@ -65,7 +65,7 @@ impl GameMeshFactory {
         };
         let Some(heap) = GameHeap::msvc() else { return MeshAttempt::Busy(BuildStall::NoHeap) };
         let Some(name) = self.strings.get(GameString::mesh(slot)) else { return MeshAttempt::Busy(BuildStall::NoHeap) };
-        let reserve = i32::try_from(quads.len() * QuadWriter::VERTICES_PER_QUAD).unwrap_or(i32::MAX);
+        let reserve = i32::try_from(quads.len() * self.writer.vertices_per_quad()).unwrap_or(i32::MAX);
         let writer = &mut self.writer;
         // SAFETY: the heap is the game's, the one the tessellator's vectors came from
         let built = tessellator.build_quads(reserve, name, |open| unsafe { writer.write(open, &heap, quads) });
@@ -87,13 +87,24 @@ impl GameMeshFactory {
     #[allow(unsafe_code)]
     pub unsafe fn draw(&self, frame: &WorldFrame<'_>, mesh: &WorldMesh, offset: [f32; 3], yaw_degrees: f32) {
         let WorldMesh::Game { mesh, .. } = mesh else { return };
-        let Some(texture) = self.texture.as_ref() else { return };
+        let Some(texture) = self.texture.as_ref() else {
+            return;
+        };
         // SAFETY: the caller guarantees the live ScreenContext of the call
-        let Some(screen) = (unsafe { ScreenContext::from_raw(frame.screen, frame.calls) }) else { return };
-        let Some(_pushed) = screen.push_world_yaw(offset, yaw_degrees) else { return };
+        let Some(screen) = (unsafe { ScreenContext::from_raw(frame.screen, frame.calls) }) else {
+            return;
+        };
+        let Some(_pushed) = screen.push_world_yaw(offset, yaw_degrees) else {
+            return;
+        };
         screen.set_world_constants();
         // SAFETY: the material is live per the caller, and the variant borrows the uses the texture holds
         screen.with_white_shader_color(|| unsafe { mesh.render(&screen, frame.material, &texture.variant()) });
+    }
+
+    /// sets the sides of the quads the next builds write; true when that changes them
+    pub fn set_two_sided(&mut self, two_sided: bool) -> bool {
+        self.writer.set_two_sided(two_sided)
     }
 
     // drops the texture; the meshes drawn with it must be gone first

@@ -15,8 +15,6 @@ pub struct Telemetry {
     max_frame: f64,
     columns: u64,
     labels: u32,
-    culled: u32,
-    draws_without_camera: u32,
     timings: u32,
     sample_us: f64,
     draw_us: f64,
@@ -41,8 +39,6 @@ impl Telemetry {
             max_frame: 0.0,
             columns: 0,
             labels: 0,
-            culled: 0,
-            draws_without_camera: 0,
             timings: 0,
             sample_us: 0.0,
             draw_us: 0.0,
@@ -76,16 +72,9 @@ impl Telemetry {
         self.columns += columns as u64;
     }
 
-    pub fn labels(&mut self, count: usize, culled: usize) {
+    pub fn labels(&mut self, count: usize) {
         if self.enabled {
             self.labels = u32::try_from(count).unwrap_or(u32::MAX);
-            self.culled = u32::try_from(culled).unwrap_or(u32::MAX);
-        }
-    }
-
-    pub fn camera_missing(&mut self) {
-        if self.enabled {
-            self.draws_without_camera = self.draws_without_camera.saturating_add(1);
         }
     }
 
@@ -128,8 +117,6 @@ impl Telemetry {
             fps: (self.intervals as f64 / elapsed) as f32,
             max_frame_ms: (self.max_frame * MS_PER_SECOND) as f32,
             labels: self.labels,
-            culled: self.culled,
-            draws_without_camera: self.draws_without_camera,
             columns_per_frame: Self::average(self.columns as f64, self.frames) as f32,
             sample_us_avg: Self::average(self.sample_us, self.timings) as f32,
             draw_us_avg: Self::average(self.draw_us, self.timings) as f32,
@@ -151,7 +138,6 @@ impl Telemetry {
         self.intervals = 0;
         self.max_frame = 0.0;
         self.columns = 0;
-        self.draws_without_camera = 0;
         self.timings = 0;
         self.sample_us = 0.0;
         self.draw_us = 0.0;

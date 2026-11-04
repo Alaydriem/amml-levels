@@ -67,8 +67,8 @@ Requires:
 - [Alaydriem's Mod Manager](https://github.com/alaydriem/modmanager), installed as an AMML mod.
 
 Download the zip from the [latest release](https://github.com/alaydriem/levels/releases/latest) and extract
-it. It holds one folder, `alaydriem-levels`, with `alaydriem_levels.dll` and `amml.hcl`. Put that folder in the AMML
-mods folder of the game, so that the files are in `mods/amml/alaydriem-levels/`. Then enable the mod in the mod
+it. It holds the folder `@alaydriem/levels`, with `alaydriem_levels.dll` and `amml.hcl`. Put that folder in the AMML
+mods folder of the game, so that the files are in `mods/amml/@alaydriem/levels/`. Then enable the mod in the mod
 manager.
 
 | Levels | Minecraft Bedrock | AMML loader | Mod Manager |
@@ -91,7 +91,7 @@ settings apply after a restart.
 | `keys.sphere_clear` | `"F3+Alt+J"` | Remove all spawn spheres |
 | `borders.line_color` / `borders.center_color` | | RGBA colours, 0–1 |
 | `borders.edge_alpha` | `0.69` | Opacity of the chunk edges (0–1) |
-| `borders.line_width` / `borders.edge_width` | `0.04` / `0.08` | Line and chunk edge width |
+| `borders.line_width` / `borders.edge_width` | `0.04` / `0.08` | Line and chunk edge width (half the width and half the alpha under Vibrant Visuals) |
 | `spheres.max_markers` | `16` | Most spheres at once (1–64) |
 | `spheres.show_distance` | `48.0` | Distance at which a sphere is drawn |
 | `spheres.inner_radius` / `spheres.outer_radius` | `24.0` / `44.5` | Shell radii in blocks |
@@ -105,7 +105,7 @@ settings apply after a restart.
 | `light.yellow_max` | `7` | Highest light shown yellow |
 | `label.red` / `label.yellow` / `label.green` | | RGBA colours, 0–1 |
 | `label.lift` | `0.02` | Height above the block (0–0.05) |
-| `label.scale` | `1.0` | Number size |
+| `label.scale` | `1.0` | Number size (pixel size, 0.04 block at 1) |
 | `telemetry` | `false` | Log frame rate, cost and memory |
 | `memory_budget_mb` | `32` | Memory budget |
 
@@ -122,7 +122,7 @@ mise run test
 mise run package
 ```
 
-`mise run package` writes `dist/alaydriem-levels/`.
+`mise run package` writes `dist/@alaydriem/levels/`.
 
 ### Operator steps after merge
 

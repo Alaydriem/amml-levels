@@ -1,14 +1,13 @@
-use crate::config::{GAME_TAG_HEADROOM, LevelsConfig};
+use crate::config::LevelsConfig;
 use crate::services::{
-    DrawListBuilder, LabelGrid, LabelRotation, LightClassifier, ScanPlanner, Telemetry, WorldMarkers,
+    DrawListBuilder, LabelGrid, LabelMeshBuilder, LightClassifier, ScanPlanner, Telemetry, WorldMarkers,
 };
-use crate::structs::draw::{CameraView, Label};
 use crate::structs::frame::{ColumnRequest, FrameStatus};
 use crate::structs::light::SurfaceSample;
 use crate::structs::manager::ManagerSignal;
 use crate::structs::marker::WorldDrawPlan;
 use crate::structs::telemetry::TelemetryReport;
-use crate::structs::world::ColumnPos;
+use crate::structs::world::{BlockPos, ColumnPos};
 
 // longest frame step fed to the scan planner, so a hitch or a paused game does not flood one frame
 const MAX_FRAME_SECONDS: f64 = 0.1;
@@ -22,13 +21,15 @@ pub struct LevelsController {
     planner: ScanPlanner,
     grid: LabelGrid,
     builder: DrawListBuilder,
+    mesh: LabelMeshBuilder,
     markers: WorldMarkers,
     is_lease_hidden: bool,
     telemetry: Telemetry,
     // the buffers core allocates once in new()
     core_bytes: u64,
     last_report: Option<TelemetryReport>,
-    is_tag_limit_reported: bool,
+    // 0 when the labels are not drawn this frame
+    label_version: u64,
 }
 
 impl LevelsController {
@@ -37,9 +38,13 @@ impl LevelsController {
         let planner = ScanPlanner::new(&config.scan);
         let grid = LabelGrid::new(config.scan.radius);
         let builder = DrawListBuilder::new(&config.scan, config.label, LightClassifier::new(config.light));
+        let mesh = LabelMeshBuilder::new(builder.max_labels());
         let markers = WorldMarkers::new(config.borders.clone(), config.spheres.clone());
-        let core_bytes =
-            planner.resident_bytes() + grid.resident_bytes() + builder.resident_bytes() + markers.resident_bytes();
+        let core_bytes = planner.resident_bytes()
+            + grid.resident_bytes()
+            + builder.resident_bytes()
+            + mesh.resident_bytes()
+            + markers.resident_bytes();
         let mut telemetry = Telemetry::new(config.telemetry, config.memory_budget_mb as u64 * BYTES_PER_MB);
         telemetry.memory(core_bytes);
         Self {
@@ -49,12 +54,13 @@ impl LevelsController {
             planner,
             grid,
             builder,
+            mesh,
             markers,
             is_lease_hidden: false,
             telemetry,
             core_bytes,
             last_report: None,
-            is_tag_limit_reported: false,
+            label_version: 0,
         }
     }
 
@@ -83,8 +89,38 @@ impl LevelsController {
         self.markers.signal(signal, self.last_status);
     }
 
-    pub fn world_plan(&self) -> Option<WorldDrawPlan<'_>> {
-        self.markers.plan()
+    // The labels, the borders and the spheres for one frame. Some when the labels are on and shown, or
+    // when the markers have a plan. A hidden HUD leaves the label quads empty.
+    pub fn world_plan(&mut self) -> Option<WorldDrawPlan<'_>> {
+        let is_labels_shown = self.is_on && !self.is_lease_hidden;
+        let mut label_version = 0;
+        if is_labels_shown {
+            self.build_labels();
+            label_version = self.label_version;
+        } else {
+            self.telemetry.labels(0);
+        }
+        let markers = self.markers.plan();
+        if !is_labels_shown && markers.is_none() {
+            return None;
+        }
+        let (label_origin, label_quads) =
+            if label_version == 0 { (BlockPos::default(), &[][..]) } else { (self.mesh.origin(), self.mesh.quads()) };
+        let plan = match markers {
+            Some(plan) => WorldDrawPlan { label_origin, label_version, label_quads, ..plan },
+            None => WorldDrawPlan {
+                label_origin,
+                label_version,
+                label_quads,
+                border_origin: BlockPos::default(),
+                border_version: 0,
+                border_quads: &[],
+                shell_version: 0,
+                shell_quads: &[],
+                instances: &[],
+            },
+        };
+        Some(plan)
     }
 
     pub fn is_lease_hidden(&self) -> bool {
@@ -106,6 +142,12 @@ impl LevelsController {
         self.builder.restyle(config.label, LightClassifier::new(config.light));
         self.telemetry.set_enabled(config.telemetry);
         self.markers.apply_config(config.borders, config.spheres);
+    }
+
+    // the graphics mode the host renders with. Under Vibrant Visuals translucent area builds up over frames, so the
+    // spawn shells are drawn as grid lines only and the border lines thinner and fainter
+    pub fn set_vibrant(&mut self, vibrant: bool) {
+        self.markers.set_vibrant(vibrant);
     }
 
     pub fn frame(&mut self, status: FrameStatus) -> &[ColumnRequest] {
@@ -140,39 +182,6 @@ impl LevelsController {
         }
     }
 
-    // game_tags is the number of name tags the game itself draws this frame; camera is the view the frame is
-    // drawn from, None when the host has not read one. A hidden HUD draws nothing, since the game would not
-    // show the labels
-    pub fn draw_list(&mut self, game_tags: usize, camera: Option<CameraView>) -> &[Label] {
-        let status = match self.last_status {
-            Some(status) if self.is_on && !status.hud_hidden && !self.is_lease_hidden => status,
-            _ => {
-                self.telemetry.labels(0, 0);
-                return &[];
-            }
-        };
-        if game_tags > GAME_TAG_HEADROOM && !self.is_tag_limit_reported {
-            self.is_tag_limit_reported = true;
-            curia::warn!("many game name tags on screen, fewer labels are drawn, the nearest are kept", {
-                game_tags: game_tags
-            });
-        }
-        if camera.is_none() {
-            self.telemetry.camera_missing();
-        }
-        let count = self.builder.build(&self.grid, status.feet, status.sky_darken, game_tags, camera).len();
-        self.telemetry.labels(count, self.builder.culled());
-        self.builder.labels()
-    }
-
-    pub fn label_rotation(&self) -> [f32; 4] {
-        LabelRotation::for_yaw(self.last_status.map_or(0.0, |status| status.yaw))
-    }
-
-    pub fn label_scale(&self) -> f32 {
-        self.builder.scale()
-    }
-
     // outside_bytes is the memory the host holds for the overlay
     pub fn timing(&mut self, sample_us: f32, draw_us: f32, outside_bytes: u64) {
         self.telemetry.timing(sample_us, draw_us);
@@ -198,6 +207,20 @@ impl LevelsController {
 
     pub fn max_columns_per_frame(&self) -> usize {
         self.max_columns_per_frame
+    }
+
+    // builds the label mesh for the last frame status; a hidden HUD draws nothing, as the game would not
+    // show the labels
+    fn build_labels(&mut self) {
+        let Some(status) = self.last_status.filter(|status| !status.hud_hidden) else {
+            self.telemetry.labels(0);
+            self.label_version = 0;
+            return;
+        };
+        let scale = self.builder.scale();
+        let labels = self.builder.build(&self.grid, status.feet, status.sky_darken);
+        self.telemetry.labels(labels.len());
+        self.label_version = self.mesh.build(labels, status.yaw, scale);
     }
 
     fn track_world(&mut self, status: &FrameStatus) {
@@ -232,7 +255,6 @@ impl LevelsController {
 
     fn set_on(&mut self, is_on: bool) {
         self.is_on = is_on;
-        self.is_tag_limit_reported = false;
         self.drop_labels();
         curia::info!("overlay toggled", { on: is_on });
     }
@@ -259,8 +281,6 @@ impl LevelsController {
             fps: report.fps,
             max_frame_ms: report.max_frame_ms,
             labels: report.labels,
-            culled: report.culled,
-            draws_without_camera: report.draws_without_camera,
             columns_per_frame: report.columns_per_frame,
             sample_us: report.sample_us_avg,
             draw_us: report.draw_us_avg,

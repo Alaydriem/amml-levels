@@ -1,8 +1,10 @@
 use crate::structs::draw::ColorQuad;
 
-// Builds the quads of one sphere shell, local to the sphere center.
-// The caller owns the output buffer, which `build` clears and refills and `append` extends.
-pub struct SphereShellBuilder;
+// Builds the quads of one sphere shell, local to the sphere center: the translucent fill, then the grid lines, or
+// the lines alone. The caller owns the output buffer, which `build` clears and refills and `append` extends.
+pub struct SphereShellBuilder {
+    with_fill: bool,
+}
 
 impl SphereShellBuilder {
     pub const SEGMENTS: u32 = 32;
@@ -15,8 +17,16 @@ impl SphereShellBuilder {
     const LINE_ALPHA_GAIN: f32 = 6.0;
     const LINE_ALPHA_MIN: f32 = 0.35;
 
+    // a builder that draws the fill and the lines
     pub fn new() -> Self {
-        Self
+        Self { with_fill: true }
+    }
+
+    // sets whether the fill is drawn; true when that changes the quads
+    pub fn set_fill(&mut self, with_fill: bool) -> bool {
+        let changed = self.with_fill != with_fill;
+        self.with_fill = with_fill;
+        changed
     }
 
     pub const fn quad_count() -> usize {
@@ -44,7 +54,7 @@ impl SphereShellBuilder {
             (color[3] * Self::LINE_ALPHA_GAIN).clamp(Self::LINE_ALPHA_MIN, 1.0),
         );
 
-        for ring in 0..Self::RINGS {
+        for ring in (0..Self::RINGS).filter(|_| self.with_fill) {
             for seg in 0..Self::SEGMENTS {
                 let corners = [
                     Self::point(radius, seg, ring),

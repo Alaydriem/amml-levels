@@ -3,14 +3,12 @@ use std::path::Path;
 use amm_client::link::ApiTable;
 use amm_core::errors::LinkError;
 use levels_core::services::LevelsController;
-use levels_core::structs::draw::CameraView;
 use levels_core::structs::frame::{ColumnRequest, FrameStatus};
 use levels_core::structs::light::SurfaceSample;
 use levels_core::structs::marker::WorldDrawPlan;
 use levels_core::structs::world::ColumnPos;
 
 use crate::services::ManagerSession;
-use crate::types::DrawView;
 
 // the overlay: core and its manager registration. The manager's events go first in each frame, so a toggle or a lost
 // lease shapes the frame; the lease follows the overlay before and after the frame, since leaving the world turns the
@@ -54,22 +52,18 @@ impl Overlay {
         self.controller.submit_column(column, samples);
     }
 
-    // the labels of this frame. `game_tags` is the number of tags the game made
-    pub fn draw(&mut self, game_tags: usize, camera: Option<CameraView>) -> DrawView<'_> {
-        let rotation = self.controller.label_rotation();
-        let scale = self.controller.label_scale();
-        let labels = self.controller.draw_list(game_tags, camera);
-        DrawView { labels, rotation, scale }
-    }
-
     // `outside_bytes` is the memory the mod holds for the overlay beside core's own
     pub fn timing(&mut self, sample_us: f32, draw_us: f32, outside_bytes: u64) {
         let own = (self.columns.capacity() * std::mem::size_of::<ColumnRequest>()) as u64;
         self.controller.timing(sample_us, draw_us, outside_bytes.saturating_add(own));
     }
 
-    // the world draw of this frame; None when nothing is to be drawn
-    pub fn world_plan(&self) -> Option<WorldDrawPlan<'_>> {
+    // the world draw of this frame, light numbers included; None when nothing is to be drawn
+    pub fn set_vibrant(&mut self, vibrant: bool) {
+        self.controller.set_vibrant(vibrant);
+    }
+
+    pub fn world_plan(&mut self) -> Option<WorldDrawPlan<'_>> {
         self.controller.world_plan()
     }
 

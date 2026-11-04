@@ -5,10 +5,6 @@ pub struct TelemetryReport {
     pub fps: f32,
     pub max_frame_ms: f32,
     pub labels: u32,
-    // labels left out behind the camera in the last draw of the window
-    pub culled: u32,
-    // draws in the window with the overlay on and no camera direction, so nothing was culled
-    pub draws_without_camera: u32,
     pub columns_per_frame: f32,
     pub sample_us_avg: f32,
     pub draw_us_avg: f32,

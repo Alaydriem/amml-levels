@@ -1,6 +1,6 @@
 use levels_core::structs::draw::ColorQuad;
 
-use crate::services::MeshFactory;
+use crate::services::{MeshFactory, QuadWriter};
 use crate::types::{BuildStall, MeshAttempt, WorldDrawStats, WorldFrame, WorldMesh, WorldSlot};
 
 /// One slot of the world draw: the meshes of one quad list, split into parts of at most `MAX_QUADS` quads, so no
@@ -21,8 +21,8 @@ pub struct MeshSlot {
 }
 
 impl MeshSlot {
-    // quads per mesh: each quad writes 8 vertices, so 8191 quads are 65528 vertices
-    pub const MAX_QUADS: usize = 8191;
+    // quads per mesh: no vertex index passes 16 bits
+    pub const MAX_QUADS: usize = 65535 / QuadWriter::MAX_VERTICES_PER_QUAD;
     // the failed builds of one version before the slot gives up on it
     pub const MAX_FAILURES: u32 = 3;
     // the busy frames of one version before one log line names the cause; about 10 s at 60 frames a second

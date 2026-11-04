@@ -1,4 +1,5 @@
 use crate::config::BordersConfig;
+use crate::services::SlimeChunks;
 use crate::structs::draw::ColorQuad;
 use crate::structs::marker::BorderMode;
 use crate::structs::world::{BlockPos, DimensionRange};
@@ -8,6 +9,8 @@ const CHUNK: i32 = 16;
 const BAND_MARGIN: i32 = 8;
 const BAND_HEIGHT: i32 = CHUNK + 2 * BAND_MARGIN;
 const GRID_RADIUS: i32 = 1;
+const GRID_SIZE: usize = (2 * GRID_RADIUS + 1) as usize;
+const SLIME_COLOR: [f32; 4] = [0.3, 1.0, 0.3, 0.6];
 // walls sit this far inside the center chunk so they never share a plane with a block face
 const WALL_INSET: f32 = 0.02;
 
@@ -23,9 +26,17 @@ pub struct ChunkBorderPlanner {
     built: Option<(i32, i32, BorderMode, i32, i32)>,
     stale: bool,
     version: u64,
+    // under Vibrant Visuals overlapping translucent lines build up over frames, so they are drawn thinner and fainter
+    vibrant: bool,
+    // slime[x][z] for the chunks of the current build, indexed from its north-west chunk
+    slime: [[bool; GRID_SIZE]; GRID_SIZE],
 }
 
 impl ChunkBorderPlanner {
+    // the line widths and alphas under Vibrant Visuals, as a share of the configured ones
+    pub const VIBRANT_WIDTH_SCALE: f32 = 0.5;
+    pub const VIBRANT_ALPHA_SCALE: f32 = 0.5;
+
     pub fn new(config: BordersConfig) -> Self {
         Self {
             config,
@@ -35,6 +46,8 @@ impl ChunkBorderPlanner {
             built: None,
             stale: false,
             version: 0,
+            vibrant: false,
+            slime: [[false; GRID_SIZE]; GRID_SIZE],
         }
     }
 
@@ -57,6 +70,14 @@ impl ChunkBorderPlanner {
     pub fn restyle(&mut self, config: BordersConfig) {
         if self.config != config {
             self.config = config;
+            self.stale = true;
+        }
+    }
+
+    // sets the graphics mode; a change rebuilds the quads with its widths and alphas
+    pub fn set_vibrant(&mut self, vibrant: bool) {
+        if self.vibrant != vibrant {
+            self.vibrant = vibrant;
             self.stale = true;
         }
     }
@@ -84,6 +105,7 @@ impl ChunkBorderPlanner {
             z: (cz - radius) * CHUNK + half_width,
         };
         self.quads.clear();
+        self.mark_slime(cx, cz, radius);
         self.build(radius, band);
         self.center(half_width as f32, half_height as f32);
         self.built = Some(key);
@@ -162,13 +184,13 @@ impl ChunkBorderPlanner {
     }
 
     fn push_horizontals(&mut self, fixed_is_x: bool, wall: i32, segment: i32, radius: i32, height: f32) {
-        let half = self.config.line_width / 2.0;
+        let half = self.width(self.config.line_width) / 2.0;
         let fixed = Self::wall_plane(wall, radius);
         let lo = (segment * CHUNK) as f32;
         let hi = lo + CHUNK as f32;
         let center = Self::is_center(radius, wall, segment * CHUNK, (segment + 1) * CHUNK);
-        let color = if center { self.config.center_color } else { self.config.line_color };
-        let rgba = Self::pack(color);
+        let slime = self.touches_slime(fixed_is_x, wall, segment, segment);
+        let rgba = Self::pack(self.faded(self.base_color(center, slime)));
         for y in 0..=(height as i32) {
             let y_lo = (y as f32 - half).max(0.0);
             let y_hi = (y as f32 + half).min(height);
@@ -193,12 +215,19 @@ impl ChunkBorderPlanner {
             if !fixed_is_x && is_edge {
                 continue;
             }
-            let width = if is_edge { self.config.edge_width } else { self.config.line_width };
+            let width = self.width(if is_edge { self.config.edge_width } else { self.config.line_width });
             let center = Self::is_center(radius, wall, along, along);
-            let mut color = if center { self.config.center_color } else { self.config.line_color };
+            let segment = along / CHUNK;
+            let slime = if is_edge {
+                self.touches_slime(fixed_is_x, wall, segment - 1, segment)
+            } else {
+                self.touches_slime(fixed_is_x, wall, segment, segment)
+            };
+            let mut color = self.base_color(center, slime);
             if is_edge {
                 color[3] = self.config.edge_alpha;
             }
+            let color = self.faded(color);
             let lo = (along as f32 - width / 2.0).max(0.0);
             let hi = (along as f32 + width / 2.0).min(length as f32);
             self.quads.push(ColorQuad {
@@ -210,6 +239,59 @@ impl ChunkBorderPlanner {
                 ],
                 rgba: Self::pack(color),
             });
+        }
+    }
+
+    fn mark_slime(&mut self, cx: i32, cz: i32, radius: i32) {
+        let highlight = self.config.slime_highlight;
+        let size = (2 * radius + 1) as usize;
+        for (ix, column) in self.slime.iter_mut().enumerate() {
+            for (iz, cell) in column.iter_mut().enumerate() {
+                let inside = ix < size && iz < size;
+                *cell = highlight && inside && SlimeChunks::is_slime(cx - radius + ix as i32, cz - radius + iz as i32);
+            }
+        }
+    }
+
+    // true when a slime chunk of the build lies on either side of `wall` between segments `from` and `to`; chunks
+    // outside the build count as not slime
+    fn touches_slime(&self, fixed_is_x: bool, wall: i32, from: i32, to: i32) -> bool {
+        (wall - 1..=wall).any(|side| {
+            (from..=to).any(
+                |segment| {
+                    if fixed_is_x { self.slime_at(side, segment) } else { self.slime_at(segment, side) }
+                },
+            )
+        })
+    }
+
+    fn slime_at(&self, x: i32, z: i32) -> bool {
+        match (usize::try_from(x), usize::try_from(z)) {
+            (Ok(x), Ok(z)) if x < GRID_SIZE && z < GRID_SIZE => self.slime[x][z],
+            _ => false,
+        }
+    }
+
+    // a configured width in the current graphics mode
+    fn width(&self, configured: f32) -> f32 {
+        if self.vibrant { configured * Self::VIBRANT_WIDTH_SCALE } else { configured }
+    }
+
+    // a colour with the alpha of the current graphics mode
+    fn faded(&self, mut color: [f32; 4]) -> [f32; 4] {
+        if self.vibrant {
+            color[3] *= Self::VIBRANT_ALPHA_SCALE;
+        }
+        color
+    }
+
+    fn base_color(&self, center: bool, slime: bool) -> [f32; 4] {
+        if slime {
+            SLIME_COLOR
+        } else if center {
+            self.config.center_color
+        } else {
+            self.config.line_color
         }
     }
 

@@ -1,13 +1,11 @@
-use crate::config::{GAME_TAG_HEADROOM, LabelConfig, MAX_COLUMN_SURFACES, ScanConfig};
+use crate::config::{LabelConfig, MAX_COLUMN_SURFACES, ScanConfig};
 use crate::services::{LabelGrid, LightClassifier};
-use crate::structs::draw::{CameraView, Label};
+use crate::structs::draw::Label;
 use crate::structs::light::{LightBand, SurfaceSample};
 use crate::structs::world::BlockPos;
 
-// turns the stored samples into the frame's labels: within the sphere, the nearest kept. The cap is
-// max_labels, lowered by every game name tag past GAME_TAG_HEADROOM, so the drawn list stays bounded.
-// Labels behind the camera are left out before the cap, so the cap is spent on labels that can be seen.
-// Both buffers are allocated once in new() and reused every frame.
+// turns the stored samples into the frame's labels: within the sphere, the nearest max_labels kept, in
+// block position order so the same set always gives the same list. Both buffers are allocated once in new() and reused every frame.
 pub struct DrawListBuilder {
     radius: u32,
     max_labels: usize,
@@ -16,8 +14,6 @@ pub struct DrawListBuilder {
     // (distance squared to the feet, sample)
     candidates: Vec<(i64, SurfaceSample)>,
     labels: Vec<Label>,
-    // labels left out behind the camera by the last build
-    culled: usize,
 }
 
 impl DrawListBuilder {
@@ -31,7 +27,6 @@ impl DrawListBuilder {
             classifier,
             candidates: Vec::with_capacity(side * side * MAX_COLUMN_SURFACES),
             labels: Vec::with_capacity(max_labels),
-            culled: 0,
         }
     }
 
@@ -50,10 +45,6 @@ impl DrawListBuilder {
         &self.labels
     }
 
-    pub fn culled(&self) -> usize {
-        self.culled
-    }
-
     pub fn scale(&self) -> f32 {
         self.label.scale
     }
@@ -63,34 +54,22 @@ impl DrawListBuilder {
             + self.labels.capacity() * std::mem::size_of::<Label>()) as u64
     }
 
-    // game_tags is the number of name tags the game itself draws this frame; with no camera every side is drawn
-    pub fn build(
-        &mut self,
-        grid: &LabelGrid,
-        feet: BlockPos,
-        sky_darken: u8,
-        game_tags: usize,
-        camera: Option<CameraView>,
-    ) -> &[Label] {
-        let cap = self.max_labels.saturating_sub(game_tags.saturating_sub(GAME_TAG_HEADROOM));
+    pub fn build(&mut self, grid: &LabelGrid, feet: BlockPos, sky_darken: u8) -> &[Label] {
+        let cap = self.max_labels;
         let limit = (self.radius as i64) * (self.radius as i64);
         self.candidates.clear();
-        self.culled = 0;
         for sample in grid.samples_near(feet, self.radius) {
             let distance = Self::distance_squared(sample.pos, feet);
             if distance > limit {
                 continue;
             }
-            if camera.is_some_and(|camera| camera.is_behind(self.position(sample))) {
-                self.culled += 1;
-                continue;
-            }
             self.candidates.push((distance, *sample));
         }
         if self.candidates.len() > cap {
-            self.candidates.select_nth_unstable_by_key(cap, |c| c.0);
+            self.candidates.select_nth_unstable_by_key(cap, Self::order);
             self.candidates.truncate(cap);
         }
+        self.candidates.sort_unstable_by_key(|c| (c.1.pos.x, c.1.pos.y, c.1.pos.z));
 
         self.labels.clear();
         for (_, sample) in &self.candidates {
@@ -99,6 +78,11 @@ impl DrawListBuilder {
             self.labels.push(Label { x, y, z, value, color: self.color(self.classifier.classify(value)) });
         }
         &self.labels
+    }
+
+    // nearest first; equal distances fall to block position so the kept set does not depend on insert order
+    fn order(candidate: &(i64, SurfaceSample)) -> (i64, i32, i32, i32) {
+        (candidate.0, candidate.1.pos.x, candidate.1.pos.y, candidate.1.pos.z)
     }
 
     // the top-face centre, lifted

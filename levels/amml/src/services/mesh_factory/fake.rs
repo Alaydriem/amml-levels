@@ -12,6 +12,7 @@ pub struct FakeMeshFactory {
     builds: u32,
     busy: u32,
     failing: u32,
+    writer: QuadWriter,
     draws: Vec<(WorldSlot, [f32; 3])>,
 }
 
@@ -24,7 +25,7 @@ impl Default for FakeMeshFactory {
 impl FakeMeshFactory {
     pub fn new() -> Self {
         let room = WorldDrawer::BORDER_MESHES + MAX_MARKERS as usize * WorldDrawer::SHELL_MESHES;
-        Self { builds: 0, busy: 0, failing: 0, draws: Vec::with_capacity(room) }
+        Self { builds: 0, busy: 0, failing: 0, writer: QuadWriter::new(), draws: Vec::with_capacity(room) }
     }
 
     // the builds tried since construction
@@ -54,7 +55,7 @@ impl FakeMeshFactory {
 
     pub fn build(&mut self, quads: &[ColorQuad]) -> MeshAttempt {
         self.builds += 1;
-        let vertices = quads.len() * QuadWriter::VERTICES_PER_QUAD;
+        let vertices = quads.len() * self.writer.vertices_per_quad();
         if self.busy > 0 {
             self.busy -= 1;
             return MeshAttempt::Busy(BuildStall::TessellatorOpen);
@@ -64,6 +65,11 @@ impl FakeMeshFactory {
             return MeshAttempt::Failed { vertices };
         }
         MeshAttempt::Built(WorldMesh::Fake { vertices })
+    }
+
+    /// sets the sides of the quads the next builds count; true when that changes them
+    pub fn set_two_sided(&mut self, two_sided: bool) -> bool {
+        self.writer.set_two_sided(two_sided)
     }
 
     pub fn draw(&mut self, slot: WorldSlot, offset: [f32; 3]) {

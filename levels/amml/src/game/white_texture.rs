@@ -6,7 +6,7 @@ use crate::game::{ResourceLocationLayout, TextureGroup, TexturePtrLayout, Textur
 use crate::types::MeshCalls;
 
 /// A one-pixel opaque white texture the mod uploads into the client's texture group, so a world mesh drawn with
-/// the name-tag material shows its vertex colours. A render-device object: made on the render thread, dropped there
+/// the wireframe material shows its vertex colours. A render-device object: made on the render thread, dropped there
 /// with the meshes. The drop gives back the texture's uses, unloads it from the group and frees the location's path
 pub struct WhiteTexture {
     group: TextureGroup,

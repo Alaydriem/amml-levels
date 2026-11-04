@@ -1,10 +1,9 @@
 use levels_core::config::{LevelsConfig, ScanConfig};
-use levels_core::services::{LabelRotation, LevelsController};
-use levels_core::structs::draw::CameraView;
+use levels_core::services::LevelsController;
 use levels_core::structs::frame::FrameStatus;
 use levels_core::structs::light::SurfaceSample;
 use levels_core::structs::manager::ManagerSignal;
-use levels_core::structs::world::{BlockPos, ColumnPos};
+use levels_core::structs::world::BlockPos;
 
 use crate::support::frames::{feet, in_world, out_of_world};
 
@@ -38,6 +37,11 @@ fn sample(x: i32, y: i32, z: i32) -> SurfaceSample {
 
 fn submit_under_feet(controller: &mut LevelsController) {
     controller.submit_column(feet().column(), &[sample(feet().x, feet().y - 1, feet().z)]);
+}
+
+// the quads of the label mesh in this frame's plan; zero when the plan has none
+fn label_quads(controller: &mut LevelsController) -> usize {
+    controller.world_plan().map_or(0, |plan| plan.label_quads.len())
 }
 
 // telemetry on; frames run from `from` for just over one 2 s window
@@ -97,12 +101,12 @@ fn lease_lost_hides_light_but_keeps_toggle() {
 
     assert!(controller.is_on());
     assert!(controller.frame(in_world(2)).is_empty());
-    assert!(controller.draw_list(0, None).is_empty());
+    assert!(controller.world_plan().is_none());
 
     controller.signal(ManagerSignal::LeaseRestored);
     controller.frame(in_world(3));
 
-    assert_eq!(controller.draw_list(0, None).len(), 1);
+    assert!(label_quads(&mut controller) > 0);
 }
 
 #[test]
@@ -171,9 +175,9 @@ fn apply_config_changes_label_colors_live() {
 
     controller.apply_config(config);
 
-    let labels = controller.draw_list(0, None);
-    assert_eq!(labels.len(), 1);
-    assert_eq!(labels[0].color, blue);
+    let plan = controller.world_plan().expect("labels on");
+    assert!(!plan.label_quads.is_empty());
+    assert!(plan.label_quads.iter().all(|quad| quad.rgba == [0, 0, 255, 255]));
 }
 
 #[test]
@@ -186,9 +190,10 @@ fn apply_config_sanitizes_light_bands() {
 
     controller.apply_config(config);
 
-    let labels = controller.draw_list(0, None);
-    assert_eq!(labels.len(), 1);
-    assert_eq!(labels[0].color, LevelsConfig::default().label.red);
+    let red = LevelsConfig::default().label.red.map(|c| (c * 255.0).round() as u8);
+    let plan = controller.world_plan().expect("labels on");
+    assert!(!plan.label_quads.is_empty());
+    assert!(plan.label_quads.iter().all(|quad| quad.rgba == red));
 }
 
 #[test]
@@ -211,7 +216,7 @@ fn off_requests_nothing() {
 
     assert!(controller.frame(in_world(0)).is_empty());
     submit_under_feet(&mut controller);
-    assert!(controller.draw_list(0, None).is_empty());
+    assert!(controller.world_plan().is_none());
 }
 
 #[test]
@@ -238,9 +243,7 @@ fn submitted_column_draws() {
 
     submit_under_feet(&mut controller);
 
-    let labels = controller.draw_list(0, None);
-    assert_eq!(labels.len(), 1);
-    assert_eq!(labels[0].value, 7);
+    assert!(label_quads(&mut controller) > 0);
 }
 
 #[test]
@@ -251,23 +254,7 @@ fn teleport_drops_labels_of_the_old_area() {
 
     controller.frame(FrameStatus { feet: BlockPos { x: feet().x + 1000, ..feet() }, ..in_world(2) });
 
-    assert!(controller.draw_list(0, None).is_empty());
-}
-
-#[test]
-fn many_game_tags_keep_the_nearest_labels() {
-    let mut config = LevelsConfig::default();
-    config.scan.max_labels = 10;
-    let mut controller = turned_on_with(config);
-    controller.frame(in_world(1));
-    for dx in 0..20 {
-        controller.submit_column(ColumnPos { x: feet().x + dx, z: feet().z }, &[sample(feet().x + dx, 63, feet().z)]);
-    }
-
-    let labels = controller.draw_list(256 + 4, None);
-
-    assert_eq!(labels.len(), 6);
-    assert!(labels.iter().all(|l| l.x < (feet().x + 6) as f32));
+    assert_eq!(label_quads(&mut controller), 0);
 }
 
 #[test]
@@ -278,7 +265,7 @@ fn submit_while_off_is_ignored() {
 
     assert!(press(&mut controller));
 
-    assert!(controller.draw_list(0, None).is_empty());
+    assert_eq!(label_quads(&mut controller), 0);
 }
 
 #[test]
@@ -292,7 +279,7 @@ fn leaving_world_turns_off_and_clears() {
 
     controller.frame(in_world(3));
     assert!(press(&mut controller));
-    assert!(controller.draw_list(0, None).is_empty());
+    assert_eq!(label_quads(&mut controller), 0);
 }
 
 #[test]
@@ -306,7 +293,7 @@ fn tick_without_a_player_keeps_the_overlay_on() {
     assert_eq!(requests, 0);
     assert!(controller.is_on());
     controller.frame(in_world(3));
-    assert_eq!(controller.draw_list(0, None).len(), 1);
+    assert!(label_quads(&mut controller) > 0);
 }
 
 #[test]
@@ -318,16 +305,7 @@ fn dimension_change_clears_but_stays_on() {
     controller.frame(FrameStatus { dimension: 1, ..in_world(2) });
 
     assert!(controller.is_on());
-    assert!(controller.draw_list(0, None).is_empty());
-}
-
-#[test]
-fn label_rotation_follows_last_yaw() {
-    let mut controller = turned_on();
-
-    controller.frame(FrameStatus { yaw: 90.0, ..in_world(1) });
-
-    assert_eq!(controller.label_rotation(), LabelRotation::for_yaw(90.0));
+    assert_eq!(label_quads(&mut controller), 0);
 }
 
 #[test]
@@ -335,11 +313,11 @@ fn telemetry_counts_no_labels_while_off() {
     let mut controller = turned_on_with(LevelsConfig { telemetry: true, ..LevelsConfig::default() });
     controller.frame(in_world(1));
     submit_under_feet(&mut controller);
-    assert_eq!(controller.draw_list(0, None).len(), 1);
+    assert!(label_quads(&mut controller) > 0);
     assert!(press(&mut controller));
 
     run_window(&mut controller, 2);
-    controller.draw_list(0, None);
+    controller.world_plan();
     run_window(&mut controller, 130);
 
     assert_eq!(controller.last_report().map(|r| r.labels), Some(0));
@@ -363,46 +341,79 @@ fn telemetry_reports_memory_against_the_budget() {
 }
 
 #[test]
-fn camera_hides_labels_behind_it() {
-    let mut controller = turned_on();
-    controller.frame(in_world(1));
-    submit_under_feet(&mut controller);
-    let at = [feet().x as f32 + 10.0, 66.0, feet().z as f32 + 0.5];
-    let away = CameraView::from_forward(at, [1.0, 0.0, 0.0]);
-
-    assert!(controller.draw_list(0, away).is_empty());
-    assert_eq!(controller.draw_list(0, None).len(), 1);
-}
-
-#[test]
-fn telemetry_reports_culled_labels_and_draws_without_a_camera() {
-    let mut controller = turned_on_with(LevelsConfig { telemetry: true, ..LevelsConfig::default() });
-    controller.frame(in_world(1));
-    submit_under_feet(&mut controller);
-    let at = [feet().x as f32 + 10.0, 66.0, feet().z as f32 + 0.5];
-    let away = CameraView::from_forward(at, [1.0, 0.0, 0.0]);
-
-    controller.draw_list(0, None);
-    controller.draw_list(0, None);
-    controller.draw_list(0, away);
-    run_window(&mut controller, 2);
-    let report = controller.last_report().expect("a report after the window");
-
-    assert_eq!((report.culled, report.draws_without_camera), (1, 2));
-}
-
-#[test]
 fn hidden_hud_pauses_scan_and_draw_and_keeps_the_labels() {
     let mut controller = turned_on();
     controller.frame(in_world(1));
     submit_under_feet(&mut controller);
 
     let requests = controller.frame(FrameStatus { hud_hidden: true, ..in_world(2) }).len();
-    let hidden = controller.draw_list(0, None).len();
+    let hidden = label_quads(&mut controller);
     let resumed = controller.frame(in_world(3)).len();
 
     assert_eq!((requests, hidden), (0, 0));
     assert!(resumed > 0);
-    assert_eq!(controller.draw_list(0, None).len(), 1);
+    assert!(label_quads(&mut controller) > 0);
     assert!(controller.is_on());
+}
+
+#[test]
+fn world_plan_has_label_quads_when_on() {
+    let mut controller = turned_on();
+    controller.frame(in_world(1));
+    submit_under_feet(&mut controller);
+
+    let plan = controller.world_plan().expect("labels on");
+
+    assert!(plan.label_version > 0);
+    assert!(!plan.label_quads.is_empty());
+    assert!(plan.border_quads.is_empty() && plan.instances.is_empty());
+}
+
+#[test]
+fn world_plan_label_version_is_stable_without_change() {
+    let mut controller = turned_on();
+    controller.frame(in_world(1));
+    submit_under_feet(&mut controller);
+    let first = controller.world_plan().expect("labels on").label_version;
+
+    let same = controller.world_plan().expect("labels on").label_version;
+    controller.frame(FrameStatus { yaw: 180.0, ..in_world(2) });
+    let turned = controller.world_plan().expect("labels on").label_version;
+
+    assert_eq!(first, same);
+    assert_ne!(first, turned);
+}
+
+#[test]
+fn hidden_hud_gives_no_label_quads() {
+    let mut controller = turned_on();
+    controller.frame(in_world(1));
+    submit_under_feet(&mut controller);
+    assert!(label_quads(&mut controller) > 0);
+
+    controller.frame(FrameStatus { hud_hidden: true, ..in_world(2) });
+
+    let plan = controller.world_plan().expect("labels still on");
+    assert_eq!((plan.label_version, plan.label_quads.len()), (0, 0));
+}
+
+#[test]
+fn world_plan_is_none_when_off_and_no_markers() {
+    let mut controller = controller();
+    controller.frame(in_world(0));
+
+    assert!(controller.world_plan().is_none());
+}
+
+#[test]
+fn markers_alone_give_a_plan_without_label_quads() {
+    let mut controller = controller();
+    controller.frame(in_world(0));
+    controller.signal(ManagerSignal::BordersPressed);
+    controller.frame(in_world(1));
+
+    let plan = controller.world_plan().expect("borders on");
+
+    assert_eq!((plan.label_version, plan.label_quads.len()), (0, 0));
+    assert!(!plan.border_quads.is_empty());
 }

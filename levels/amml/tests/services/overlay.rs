@@ -65,11 +65,11 @@ impl Session {
         self.frame(Self::in_world(f64::from(frame) / 60.0))
     }
 
-    fn instances(&self) -> usize {
+    fn instances(&mut self) -> usize {
         self.overlay.world_plan().map_or(0, |plan| plan.instances.len())
     }
 
-    fn border_quads(&self) -> usize {
+    fn border_quads(&mut self) -> usize {
         self.overlay.world_plan().map_or(0, |plan| plan.border_quads.len())
     }
 
@@ -316,10 +316,10 @@ fn settings_changed_rereads_the_document() {
     session.frame(Session::in_world(2.0 / 60.0));
     session.overlay.submit_column(ColumnPos { x: 10, z: -20 }, &[Session::under_feet(7, 0)]);
 
-    let view = session.overlay.draw(0, None);
+    let plan = session.overlay.world_plan().unwrap();
 
-    assert_eq!(view.labels.len(), 1);
-    assert_eq!(view.labels[0].color, [0.0, 0.0, 1.0, 1.0]);
+    assert!(!plan.label_quads.is_empty());
+    assert!(plan.label_quads.iter().all(|quad| quad.rgba[..3] == [0x00, 0x00, 0xFF]), "{:?}", plan.label_quads);
 }
 
 #[test]
@@ -332,7 +332,21 @@ fn unreadable_settings_keep_the_last_config() {
     session.frame(Session::in_world(2.0 / 60.0));
     session.overlay.submit_column(ColumnPos { x: 10, z: -20 }, &[Session::under_feet(7, 0)]);
 
-    let view = session.overlay.draw(0, None);
+    let plan = session.overlay.world_plan().unwrap();
 
-    assert_eq!(view.labels[0].color[..3], [0.0, 0.0, 1.0]);
+    assert!(!plan.label_quads.is_empty());
+    assert!(plan.label_quads.iter().all(|quad| quad.rgba[..3] == [0x00, 0x00, 0xFF]), "{:?}", plan.label_quads);
+}
+
+#[test]
+fn the_world_plan_carries_the_labels() {
+    let mut session = Session::new();
+    session.turn_on();
+    session.frame(Session::in_world(1.0 / 60.0));
+    session.overlay.submit_column(ColumnPos { x: 10, z: -20 }, &[Session::under_feet(7, 0)]);
+
+    let plan = session.overlay.world_plan().unwrap();
+
+    assert!(plan.label_version >= 1);
+    assert!(!plan.label_quads.is_empty());
 }

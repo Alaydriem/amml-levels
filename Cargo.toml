@@ -18,12 +18,12 @@ curia = "=0.2.2"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 hcl-rs = "=0.19.8"
 levels-core = { path = "levels/core" }
-amm-abi = { git = "https://github.com/Alaydriem/amml-modmanager.git", tag = "26.60.0" }
-amm-client = { git = "https://github.com/Alaydriem/amml-modmanager.git", tag = "26.60.0", default-features = false }
-amm-core = { git = "https://github.com/Alaydriem/amml-modmanager.git", tag = "26.60.0" }
-amml-sdk = { git = "https://github.com/Alaydriem/amml.git", tag = "26.60.0" }
-amml-game = { git = "https://github.com/Alaydriem/amml.git", tag = "26.60.0" }
-amml-msvc = { git = "https://github.com/Alaydriem/amml.git", tag = "26.60.0" }
+amm-abi = { git = "https://github.com/Alaydriem/amml-modmanager.git", tag = "26.60.5" }
+amm-client = { git = "https://github.com/Alaydriem/amml-modmanager.git", tag = "26.60.5", default-features = false }
+amm-core = { git = "https://github.com/Alaydriem/amml-modmanager.git", tag = "26.60.5" }
+amml-sdk = { git = "https://github.com/Alaydriem/amml.git", tag = "26.60.5" }
+amml-game = { git = "https://github.com/Alaydriem/amml.git", tag = "26.60.5" }
+amml-msvc = { git = "https://github.com/Alaydriem/amml.git", tag = "26.60.5" }
 thiserror = "2.0.21"
 
 [workspace.lints.clippy]
