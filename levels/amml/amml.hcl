@@ -66,3 +66,17 @@ entries = [
   "RenderMaterial.mBlendSource",
   "RenderMaterial.mBlendDestination",
 ]
+
+listing {
+  title       = "Levels"
+  summary     = "Light levels, chunk borders, and spawn sphere markers."
+  description = <<-EOT
+    View levels and place markers in your world to see light levels, chunk borders, spawn spheres, and more.
+  EOT
+  authors     = ["Charles R. Portwood II"]
+  license     = "BSD-3-Clause"
+  source      = "https://github.com/alaydriem/amml-levels"
+  homepage    = "https://github.com/alaydriem/amml-levels#readme"
+  tags        = ["light-level", "spawning", "chunk-borders", "overlay", "client"]
+  icon        = "icon.png"
+}

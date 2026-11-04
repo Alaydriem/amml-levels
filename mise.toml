@@ -28,6 +28,7 @@ rm -rf dist/alaydriem-levels dist/@alaydriem/levels
 mkdir -p dist/@alaydriem/levels
 cp target/release/alaydriem_levels.dll dist/@alaydriem/levels/alaydriem_levels.dll
 cp levels/amml/amml.hcl dist/@alaydriem/levels/amml.hcl
+cp levels/amml/icon.png dist/@alaydriem/levels/icon.png
 echo "built dist/@alaydriem/levels"
 '''
 

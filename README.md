@@ -4,9 +4,9 @@
 
 # Alaydriem's Levels
 
-[![Release](https://img.shields.io/github/v/release/alaydriem/levels?include_prereleases)](https://github.com/alaydriem/levels/releases)
-[![Build](https://img.shields.io/github/actions/workflow/status/alaydriem/levels/build.yml?branch=master&label=build)](https://github.com/alaydriem/levels/actions/workflows/build.yml)
-[![License](https://img.shields.io/github/license/alaydriem/levels)](./LICENSE)
+[![Release](https://img.shields.io/github/v/release/alaydriem/amml-levels?include_prereleases)](https://github.com/alaydriem/amml-levels/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/alaydriem/amml-levels/build.yml?branch=master&label=build)](https://github.com/alaydriem/amml-levels/actions/workflows/build.yml)
+[![License](https://img.shields.io/github/license/alaydriem/amml-levels)](./LICENSE)
 ![Minecraft Bedrock](https://img.shields.io/badge/Minecraft_Bedrock-1.26.51%2C%201.26.60-62B47A)
 [![AMML](https://img.shields.io/badge/AMML-mod-4A90D9)](https://github.com/alaydriem/amml)
 
@@ -59,23 +59,7 @@ The overlays hide with the HUD (<kbd>F1</kbd>).
 
 ## Installation
 
-Requires:
-
-- the **AMML loader** (26.60.0 or later), which loads the mod into the game. The loader also carries the recipes that
-  find the game addresses the overlay uses (in its `recipes/`). An older loader does not have
-  them: it logs "required entry ... did not resolve" and the overlay stays off. Update the loader first.
-- [Alaydriem's Mod Manager](https://github.com/alaydriem/modmanager), installed as an AMML mod.
-
-Download the zip from the [latest release](https://github.com/alaydriem/levels/releases/latest) and extract
-it. It holds the folder `@alaydriem/levels`, with `alaydriem_levels.dll` and `amml.hcl`. Put that folder in the AMML
-mods folder of the game, so that the files are in `mods/amml/@alaydriem/levels/`. Then enable the mod in the mod
-manager.
-
-| Levels | Minecraft Bedrock | AMML loader | Mod Manager |
-| --- | --- | --- | --- |
-| 26.60.0 | 1.26.51, 1.26.60 | 26.60.0+ | 26.60.x |
-
-Chunk borders and spawn spheres are tested on 1.26.60 only.
+Install it with the [AMML launcher](https://github.com/alaydriem/amml/releases/latest). The launcher also installs the AMML loader and Alaydriem's Mod Manager, which this mod needs.
 
 ## Configuration
 
@@ -91,9 +75,10 @@ settings apply after a restart.
 | `keys.sphere_clear` | `"F3+Alt+J"` | Remove all spawn spheres |
 | `borders.line_color` / `borders.center_color` | | RGBA colours, 0–1 |
 | `borders.edge_alpha` | `0.69` | Opacity of the chunk edges (0–1) |
+| `borders.slime_highlight` | `false` | Draw the borders of slime chunks in green |
 | `borders.line_width` / `borders.edge_width` | `0.04` / `0.08` | Line and chunk edge width (half the width and half the alpha under Vibrant Visuals) |
 | `spheres.max_markers` | `16` | Most spheres at once (1–64) |
-| `spheres.show_distance` | `48.0` | Distance at which a sphere is drawn |
+| `spheres.show_distance` | `96.0` | Distance at which a sphere is drawn |
 | `spheres.inner_radius` / `spheres.outer_radius` | `24.0` / `44.5` | Shell radii in blocks |
 | `spheres.inner_color` / `spheres.outer_color` | | RGBA colours, 0–1 |
 | `spheres.spin` | `2.5` | Spin speed of both shells |
@@ -123,10 +108,6 @@ mise run package
 ```
 
 `mise run package` writes `dist/@alaydriem/levels/`.
-
-### Operator steps after merge
-
-- Rename the GitHub repo to the new name.
 
 ## License
 
