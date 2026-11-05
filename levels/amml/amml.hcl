@@ -2,6 +2,7 @@ namespace   = "alaydriem"
 name        = "levels"
 entry       = "alaydriem_levels.dll"
 api_version = 2
+amml_version = "26.60.6"
 entries = [
   # required: the overlay refuses to enable without them
   "ClientInstance.update",
