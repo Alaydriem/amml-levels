@@ -1,7 +1,7 @@
 namespace    = "alaydriem"
 name         = "levels"
 display_name = "Levels"
-version      = "26.60.5"
+version      = "26.60.6"
 author       = "Alaydriem"
 config_path  = "config.hcl"
 
