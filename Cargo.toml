@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["levels/core", "levels/amml"]
+members = ["src/core", "src/amml"]
 
 [workspace.package]
 version = "26.62.0"
@@ -17,7 +17,7 @@ tempfile = "3.27.0"
 curia = "=0.2.2"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 hcl-rs = "=0.19.8"
-levels-core = { path = "levels/core" }
+levels-core = { path = "src/core" }
 amm-abi = { git = "https://github.com/Alaydriem/amml-modmanager.git", tag = "26.62.0" }
 amm-client = { git = "https://github.com/Alaydriem/amml-modmanager.git", tag = "26.62.0", default-features = false }
 amm-core = { git = "https://github.com/Alaydriem/amml-modmanager.git", tag = "26.62.0" }

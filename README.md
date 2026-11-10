@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./assets/icon.png" alt="Levels" width="256">
+<img src="./assets/readme.png" alt="Levels" width="256">
 
 # Alaydriem's Levels
 
@@ -20,7 +20,7 @@ A client-side helper set for Minecraft Bedrock. It has three features:
 
 The mod reads data your game already has and sends nothing to the server.
 
-## Usage
+## Features
 
 Hold <kbd>F3</kbd> and press a key. The keys can be changed on the mod manager's Keybinds page.
 
@@ -107,7 +107,7 @@ mise run test
 mise run package
 ```
 
-`mise run package` writes `dist/@alaydriem/levels/`.
+`mise run package` writes `dist/@alaydriem/levels/` (`alaydriem_levels.dll`, `amml.hcl` and `icon.png`). `mise run install --instance <name>` runs `package`, then copies it into `%LOCALAPPDATA%\amml\instances\<name>\mods\amml\@alaydriem\levels\`. Close the game first.
 
 ## License
 

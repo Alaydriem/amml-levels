@@ -1,8 +1,9 @@
 /target
+/dist
 /mise.local.toml
+/.superpowers/
+/docs
+*.pdb
 /spike/build
 /spike/.xmake
 /spike/bin
-/.superpowers/
-/dist
-docs
