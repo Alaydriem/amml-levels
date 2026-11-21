@@ -417,3 +417,19 @@ fn markers_alone_give_a_plan_without_label_quads() {
     assert_eq!((plan.label_version, plan.label_quads.len()), (0, 0));
     assert!(!plan.border_quads.is_empty());
 }
+
+#[test]
+fn the_telemetry_setting_and_the_sphere_count_are_readable() {
+    let mut controller = turned_on_with(LevelsConfig { telemetry: true, ..LevelsConfig::default() });
+    assert!(controller.is_telemetry_on());
+    assert_eq!(controller.marker_count(), 0);
+
+    controller.frame(in_world(1));
+    controller.signal(ManagerSignal::SphereDropPressed);
+    assert_eq!(controller.marker_count(), 1);
+
+    controller.apply_config(LevelsConfig::default());
+    assert!(!controller.is_telemetry_on());
+    controller.signal(ManagerSignal::SphereClearPressed);
+    assert_eq!(controller.marker_count(), 0);
+}

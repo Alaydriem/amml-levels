@@ -130,6 +130,10 @@ impl WorldMarkers {
         self.planner.set_vibrant(vibrant);
     }
 
+    pub fn marker_count(&self) -> usize {
+        self.registry.len()
+    }
+
     pub fn is_active(&self) -> bool {
         self.planner.mode() != BorderMode::Off || !self.registry.is_empty()
     }

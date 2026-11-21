@@ -196,6 +196,16 @@ impl LevelsController {
         self.is_on
     }
 
+    // whether telemetry windows are being kept (the setting `telemetry`)
+    pub fn is_telemetry_on(&self) -> bool {
+        self.telemetry.is_enabled()
+    }
+
+    // the spawn spheres the player has dropped
+    pub fn marker_count(&self) -> usize {
+        self.markers.marker_count()
+    }
+
     // whether the last frame status had a world loaded
     pub fn is_in_world(&self) -> bool {
         self.last_status.is_some_and(|status| status.in_world)

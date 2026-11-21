@@ -51,6 +51,10 @@ impl Telemetry {
         }
     }
 
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
     // a change starts a fresh window, so a report never spans the time telemetry was off
     pub fn set_enabled(&mut self, enabled: bool) {
         if enabled != self.enabled {

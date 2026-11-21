@@ -1,72 +1,84 @@
-namespace   = "alaydriem"
-name        = "levels"
-entry       = "alaydriem_levels.dll"
-api_version = 2
-amml_version = "26.60.6"
-entries = [
-  # required: the overlay refuses to enable without them
-  "ClientInstance.update",
-  "ClientInstance.getLocalPlayer",
-  "ClientInstance.isWorldActive",
-  "ClientInstance.isShowingMenu",
-  "ClientInstance.getOptions",
-  "IOptionRegistry.getHideHud",
-  "Actor.stateVectorComponent",
-  "Actor.actorRotationComponent",
-  "StateVectorComponent.mPos",
-  "ActorRotationComponent.mRot",
-  "Actor.getDimension",
-  "Dimension.getDimensionId",
-  "Actor.getDimensionBlockSource",
-  "BlockSource.getChunk",
-  "LevelChunk.mSubChunks",
-  "LevelChunk.getBlock",
-  "BlockSource.getBrightnessPair",
-  "Block.canProvideFullSupport",
-  "BlockType.getCollisionShape",
-  "Camera.mForward",
-  "ViewRenderObject.mViewData",
-  "ViewRenderData.mCameraPos",
-  "ScreenContext.tessellator",
-  "BaseActorRenderer.ctor",
-  "BaseActorRenderer.size",
-  "IOptionRegistry.isGraphicsModeDeferred",
-  "LevelRenderer.renderLevel",
-  "FrameRenderObject.mViews",
-  "Tessellator.begin",
-  "Tessellator.end",
-  "Tessellator.clear",
-  "Tessellator.mTessellating",
-  "Mesh.dtor",
-  "Mesh.isValid",
-  "Mesh.renderMesh",
-  "Mesh.size",
-  "MatrixStack.push",
-  "MatrixStackRef.dtor",
-  "ActorShaderManager.setEntityConstants",
-  "GlobalConstantBuffers.entityConstantBuffer",
-  "ClientInstance.getTextureGroup",
-  "TextureGroup.getTexture",
-  "TextureGroup.uploadTexture",
-  "TextureGroup.unloadTexture",
-  "ResourceLocation.ctor",
-  "ImageBuffer.ctorFromDescription",
-  "ResourceLocation.mFullHash",
-  "ImageBuffer.mDescription",
-  "ImageDescription.depth",
-  "TextureGroup.baseOffset",
-  "ScreenContext.meshContext",
-  "ScreenContext.camera",
-  "ScreenContext.constantBuffers",
-  "ScreenContext.currentShaderColor",
-  "LevelRenderer.mLevelRendererPlayer",
-  "LevelRendererCamera.mWireframeMaterial",
-  "RenderMaterialInfo.mMaterial",
-  "RenderMaterial.mEnableBlend",
-  "RenderMaterial.mDepthWriteMask",
-  "RenderMaterial.mBlendSource",
-  "RenderMaterial.mBlendDestination",
-]
+namespace    = "alaydriem"
+name         = "levels"
+entry        = "alaydriem_levels.dll"
+api_version  = 3
+
+uses {
+  feature "overlay" {
+    event "client.tick" {
+      version  = 1
+      required = true
+    }
+    event "render.world_rendered" {
+      version  = 1
+      required = true
+    }
+    event "registry.provider_ready" {
+      version  = 1
+      required = true
+    }
+    event "registry.provider_gone" {
+      version  = 1
+      required = true
+    }
+    event "mods.loaded" {
+      version  = 1
+      required = true
+    }
+    event "input.lease_suspended" {
+      version  = 1
+      required = true
+    }
+    event "input.lease_resumed" {
+      version  = 1
+      required = true
+    }
+    event "input.lease_lost" {
+      version  = 1
+      required = true
+    }
+    event "input.injected_released" {
+      version  = 2
+      required = true
+    }
+    event "overlay.screenshot_taken" {
+      version  = 1
+      required = true
+    }
+    event "overlay.screenshot_written" {
+      version  = 1
+      required = true
+    }
+    area "input.lease" {
+      version  = 1
+      required = true
+    }
+    area "client.read" {
+      version  = 1
+      required = true
+    }
+    area "client.hud" {
+      version  = 1
+      required = true
+    }
+    area "actor.read" {
+      version  = 3
+      required = true
+    }
+    area "world.sky_darken" {
+      version  = 1
+      required = true
+    }
+    area "world.scan_surfaces" {
+      version  = 1
+      required = true
+    }
+    area "render.world_canvas" {
+      version  = 2
+      required = true
+    }
+  }
+}
 
 listing {
   title       = "Levels"

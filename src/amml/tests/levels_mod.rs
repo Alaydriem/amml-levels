@@ -1,257 +1,358 @@
-use std::collections::HashMap;
-use std::ffi::c_void;
-use std::sync::Mutex;
-
 use alaydriem_levels::LevelsMod;
-use alaydriem_levels::types::LevelsEntry;
-use amml_game::{CameraLayout, EntryId, GameError};
-use amml_sdk::amml_abi::{AMML_API_VERSION, AmmlApi, AmmlLogLevel, AmmlStatus, AmmlStr};
-use amml_sdk::{AmmlMod, Api};
+use amm_client::link::LinkUses;
+use amm_client::test_support::FakeTable;
+use amm_core::structs::descriptor::Capability;
+use amml_api::AmmlMod;
+use amml_api::testing::{FakeCanvas, FakeClient, FakeWorld};
 
-use crate::support::FakeResolver;
+use crate::support::levels_rig::{BORDERS, LevelsRig, SPHERE_CLEAR, SPHERE_DROP, TOGGLE};
 
-// the size entries hold the sizes of the mirrors, as both game builds derive them
-fn value(id: EntryId, other: u64) -> u64 {
-    match id {
-        LevelsEntry::MESH_SIZE => 0x260,
-        LevelsEntry::BASE_ACTOR_RENDERER_SIZE => 0xB8,
-        LevelsEntry::TESSELLATOR_TESSELLATING => 0x2A0,
-        LevelsEntry::RESOURCE_LOCATION_FULL_HASH => 0x30,
-        LevelsEntry::IMAGE_BUFFER_DESCRIPTION => 0x18,
-        LevelsEntry::IMAGE_DESCRIPTION_DEPTH => 0x10,
-        LevelsEntry::TEXTURE_GROUP_BASE_OFFSET => 0x18,
-        LevelsEntry::SCREEN_CONTEXT_MESH_CONTEXT => 0x10,
-        LevelsEntry::SCREEN_CONTEXT_CAMERA => 0x18,
-        LevelsEntry::SCREEN_CONTEXT_CONSTANT_BUFFERS => 0x20,
-        LevelsEntry::SCREEN_CONTEXT_CURRENT_SHADER_COLOR => 0x30,
-        EntryId::CAMERA_FORWARD => CameraLayout::FORWARD,
-        _ => other,
-    }
-}
+const MANIFEST: &str = include_str!("../amml.hcl");
 
-// every required entry with a value
-fn required() -> Vec<(EntryId, u64)> {
-    LevelsMod::REQUIRED.iter().enumerate().map(|(index, id)| (*id, value(*id, 0x100 + index as u64))).collect()
-}
-
-fn with(values: Vec<(EntryId, u64)>, id: EntryId, value: u64) -> Vec<(EntryId, u64)> {
-    values.into_iter().map(|(entry, old)| (entry, if entry == id { value } else { old })).collect()
+// the number after `key=` in a logged line
+fn field(line: &str, key: &str) -> usize {
+    let start = line.find(&format!("{key}=")).unwrap() + key.len() + 1;
+    line[start..].split(' ').next().unwrap().parse().unwrap()
 }
 
 #[test]
-fn with_every_required_entry_the_wanted_list_is_met_and_no_layout_is_at_fault() {
-    let entries = LevelsMod::resolve(&FakeResolver::new(&required())).unwrap();
-
-    assert!(LevelsMod::layout_faults(&entries).is_empty());
+fn the_manifest_names_the_mod_and_lists_no_entries() {
+    assert!(MANIFEST.contains("namespace    = \"alaydriem\""));
+    assert!(MANIFEST.contains("name         = \"levels\""));
+    assert!(MANIFEST.contains("api_version  = 3"));
+    assert!(!MANIFEST.contains("entries"));
+    assert!(!MANIFEST.contains("amml_version"));
 }
 
 #[test]
-fn the_wanted_list_has_no_name_tag_or_font_entry() {
-    let names: Vec<&str> = LevelsMod::wanted().iter().map(|(id, _)| id.as_str()).collect();
+fn the_manifest_uses_block_is_the_uses_of_the_mod() {
+    let manifest = MANIFEST.replace("\r\n", "\n");
 
-    for gone in
-        ["extractNameTags", "NameTagRenderObject", "_extractRenderTextObject", "FontHandle", "Font.", "setupCamera"]
-    {
-        assert!(names.iter().all(|name| !name.contains(gone)), "{gone} is still wanted");
-    }
-    assert!(names.contains(&"LevelRenderer.renderLevel"));
-    assert!(names.contains(&"LevelRendererCamera.mWireframeMaterial"));
-}
-
-// the world draw reads the camera position from the frame's first view through these two entries; without them
-// every frame is skipped and nothing is drawn
-#[test]
-fn the_frame_camera_entries_are_wanted() {
-    let names: Vec<&str> = LevelsMod::wanted().iter().map(|(id, _)| id.as_str()).collect();
-
-    assert!(names.contains(&EntryId::VIEW_RENDER_OBJECT_VIEW_DATA.as_str()));
-    assert!(names.contains(&EntryId::VIEW_RENDER_DATA_CAMERA_POS.as_str()));
+    assert_eq!(manifest.matches(&LevelsMod::USES.to_hcl()).count(), 1);
+    assert_eq!(LevelsMod::USES.write_into(&manifest), manifest);
 }
 
 #[test]
-fn the_manifest_lists_every_required_entry() {
-    let manifest = include_str!("../amml.hcl");
-
-    for id in LevelsMod::REQUIRED {
-        assert!(manifest.contains(&format!("\"{}\"", id.as_str())), "{} is not in amml.hcl", id.as_str());
-    }
+fn link_uses_are_complete() {
+    assert_eq!(LinkUses::check(&LevelsMod::USES), Ok(()));
 }
 
 #[test]
-fn a_mesh_size_that_fits_no_mirror_is_a_layout_fault() {
-    let entries = LevelsMod::resolve(&FakeResolver::new(&with(required(), LevelsEntry::MESH_SIZE, 0x250))).unwrap();
+fn the_first_tick_with_the_manager_links_it() {
+    let rig = LevelsRig::with_manager("");
+    rig.set_client(LevelsRig::in_world());
 
-    let faults = LevelsMod::layout_faults(&entries);
+    rig.tick();
+    rig.tick();
 
-    assert_eq!(faults, ["Mesh.size is 0x250, the mirror expects 0x278"]);
+    assert_eq!(rig.lines("info levels: manager linked"), ["info levels: manager linked"]);
 }
 
 #[test]
-fn a_base_actor_renderer_size_that_fits_no_mirror_is_a_layout_fault() {
-    let values = with(required(), LevelsEntry::BASE_ACTOR_RENDERER_SIZE, 0xC0);
-    let entries = LevelsMod::resolve(&FakeResolver::new(&values)).unwrap();
+fn without_the_manager_the_overlay_stays_off() {
+    let rig = LevelsRig::without_manager();
+    rig.set_client(LevelsRig::in_world());
+    FakeTable::mods_loaded(&rig.game);
 
-    let faults = LevelsMod::layout_faults(&entries);
+    rig.tick();
+    rig.press(TOGGLE);
+    let canvas = rig.frame();
 
-    assert_eq!(faults, ["BaseActorRenderer.size is 0xc0, the mirror is 0xb8"]);
+    assert_eq!(rig.lines("error levels: manager missing, overlay off").len(), 1);
+    assert!(rig.lines("info levels: manager linked").is_empty());
+    assert!(canvas.calls.borrow().is_empty());
+    assert!(LevelsRig::acquired().is_empty());
 }
 
 #[test]
-fn a_missing_mesh_entry_refuses_the_enable() {
-    for missing in [LevelsEntry::RENDER_LEVEL, LevelsEntry::MESH_RENDER, LevelsEntry::WIREFRAME_MATERIAL] {
-        let values: Vec<_> = required().into_iter().filter(|(id, _)| *id != missing).collect();
+fn the_toggle_takes_the_lease_scans_and_draws_the_labels() {
+    let rig = LevelsRig::turned_on();
 
-        let result = LevelsMod::resolve(&FakeResolver::new(&values));
+    let canvas = rig.frame();
 
-        assert!(matches!(result, Err(GameError::MissingEntry { id }) if id == missing.as_str()), "{missing:?}");
-    }
-}
-
-// a loader table whose functions are fakes: `resolve` answers from `VALUES`, `hook` and `unhook` record their calls
-static VALUES: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
-static HOOKS: Mutex<Vec<(u64, i32)>> = Mutex::new(Vec::new());
-static UNHOOKED: Mutex<Vec<u64>> = Mutex::new(Vec::new());
-// a target whose hook the fake loader refuses
-static REFUSED: Mutex<Option<u64>> = Mutex::new(None);
-static LOGGED: Mutex<Vec<String>> = Mutex::new(Vec::new());
-static DIR: &str = "C:/levels-test";
-
-struct FakeLoader;
-
-impl FakeLoader {
-    unsafe extern "C" fn resolve(id: AmmlStr, out: *mut u64) -> AmmlStatus {
-        // SAFETY: the SDK passes a live string view and a live u64
-        let id = unsafe { id.as_str() }.unwrap().to_string();
-        match VALUES.lock().unwrap().as_ref().and_then(|values| values.get(&id)) {
-            Some(value) => {
-                // SAFETY: as above
-                unsafe { out.write(*value) };
-                AmmlStatus::OK
-            }
-            None => AmmlStatus::MISSING_ENTRY,
-        }
-    }
-
-    unsafe extern "C" fn hook(
-        target: *const c_void,
-        _detour: *const c_void,
-        priority: i32,
-        _original: *mut *const c_void,
-        handle: *mut u64,
-    ) -> AmmlStatus {
-        if *REFUSED.lock().unwrap() == Some(target as u64) {
-            return AmmlStatus::HOOK_FAILED;
-        }
-        let mut hooks = HOOKS.lock().unwrap();
-        hooks.push((target as u64, priority));
-        // SAFETY: the SDK passes a live u64
-        unsafe { handle.write(hooks.len() as u64) };
-        AmmlStatus::OK
-    }
-
-    unsafe extern "C" fn unhook(handle: u64) -> AmmlStatus {
-        UNHOOKED.lock().unwrap().push(handle);
-        AmmlStatus::OK
-    }
-
-    unsafe extern "C" fn log(_: AmmlStr, _: AmmlLogLevel, line: AmmlStr) {
-        // SAFETY: the SDK passes a live string view
-        let line = unsafe { line.as_str() }.unwrap().to_string();
-        LOGGED.lock().unwrap().push(line);
-    }
-
-    unsafe extern "C" fn heap_new(_: usize) -> *mut u8 {
-        std::ptr::null_mut()
-    }
-
-    unsafe extern "C" fn heap_delete(_: *mut u8, _: usize) {}
-
-    unsafe extern "C" fn mod_dir(_: AmmlStr, _: u8, out: *mut AmmlStr) -> AmmlStatus {
-        // SAFETY: the SDK passes a live view to write; the text is a static
-        unsafe { out.write(AmmlStr::from_str(DIR)) };
-        AmmlStatus::OK
-    }
-
-    fn api() -> Api {
-        let table = AmmlApi {
-            size: AmmlApi::SIZE_V1,
-            version: AMML_API_VERSION,
-            module_base: 0x1000,
-            resolve: Self::resolve,
-            hook: Self::hook,
-            unhook: Self::unhook,
-            log: Self::log,
-            heap_new: Self::heap_new,
-            heap_delete: Self::heap_delete,
-            mod_dir: Self::mod_dir,
-        };
-        // SAFETY: the table is live for the call, and complete
-        unsafe { Api::from_raw(&table, AMML_API_VERSION) }.unwrap()
-    }
-}
-
-impl FakeLoader {
-    // installs `entries` as the loader's values
-    fn install(entries: Vec<(EntryId, u64)>) {
-        let mut values: HashMap<String, u64> = HashMap::new();
-        for (id, value) in entries {
-            values.insert(id.as_str().to_string(), value);
-        }
-        *VALUES.lock().unwrap() = Some(values);
-        HOOKS.lock().unwrap().clear();
-        UNHOOKED.lock().unwrap().clear();
-        *REFUSED.lock().unwrap() = None;
-    }
-}
-
-fn address(id: EntryId) -> u64 {
-    0x100 + LevelsMod::REQUIRED.iter().position(|entry| *entry == id).unwrap() as u64
+    assert_eq!(LevelsRig::acquired(), [Capability::WorldDraw]);
+    assert_eq!(rig.lines("info levels: world draw lease held").len(), 1);
+    let scan = &rig.lines("info levels: scan")[0];
+    assert!(field(scan, "columns") > 0 && field(scan, "surfaces") > 0, "{scan}");
+    let built = &rig.lines("info levels: mesh built slot=label")[0];
+    let quads = field(built, "quads");
+    assert!(quads > 0, "{built}");
+    let calls = canvas.calls.borrow();
+    assert_eq!(calls[0], format!("build quads={quads} style=alpha/1/0/2/full/white"));
+    assert!(calls[1].starts_with("draw "), "{calls:?}");
 }
 
 #[test]
-fn enable_hooks_the_update_and_the_level_render_after_the_writers() {
-    FakeLoader::install(required());
-    let api = FakeLoader::api();
+fn the_labels_are_built_once_and_drawn_every_frame() {
+    let rig = LevelsRig::turned_on();
 
-    LevelsMod::load(&api).unwrap();
-    LevelsMod::enable(&api).unwrap();
+    let first = rig.frame();
+    let second = rig.frame();
 
-    let hooks = HOOKS.lock().unwrap().clone();
-    assert_eq!(hooks, [(address(EntryId::CLIENT_INSTANCE_UPDATE), 100), (address(LevelsEntry::RENDER_LEVEL), 100)]);
-
-    LevelsMod::disable(&api);
-
-    assert_eq!(UNHOOKED.lock().unwrap().clone(), [2, 1]);
+    assert_eq!(first.calls.borrow().iter().filter(|call| call.starts_with("build")).count(), 1);
+    assert_eq!(second.calls.borrow().iter().filter(|call| call.starts_with("build")).count(), 0);
+    assert_eq!(second.calls.borrow().iter().filter(|call| call.starts_with("draw")).count(), 1);
+    assert_eq!(rig.lines("info levels: mesh built slot=label").len(), 1);
 }
 
 #[test]
-fn a_layout_that_does_not_fit_refuses_the_enable_and_installs_no_hook() {
-    FakeLoader::install(with(required(), LevelsEntry::MESH_SIZE, 0x250));
-    let api = FakeLoader::api();
+fn the_border_key_builds_the_border_mesh() {
+    let rig = LevelsRig::turned_on();
+    rig.frame();
 
-    LevelsMod::load(&api).unwrap();
+    rig.press(BORDERS);
+    rig.frame();
 
-    assert!(LevelsMod::enable(&api).is_err());
-    assert!(HOOKS.lock().unwrap().is_empty());
+    assert_eq!(rig.lines("info levels: mesh built slot=border").len(), 1);
 }
 
 #[test]
-fn a_refused_render_hook_refuses_the_enable_and_removes_the_update_hook() {
-    FakeLoader::install(required());
-    *REFUSED.lock().unwrap() = Some(address(LevelsEntry::RENDER_LEVEL));
-    let api = FakeLoader::api();
+fn a_dropped_sphere_is_built_and_drawn_with_the_negated_spin() {
+    let rig = LevelsRig::with_manager("spheres {\n  spin = -90.0\n}\n");
+    rig.set_client(LevelsRig::in_world());
+    rig.tick();
+    rig.press(SPHERE_DROP);
 
-    LevelsMod::load(&api).unwrap();
+    let canvas = rig.frame();
 
-    assert!(LevelsMod::enable(&api).is_err());
-    assert_eq!(HOOKS.lock().unwrap().len(), 1);
-    assert_eq!(UNHOOKED.lock().unwrap().clone(), [1]);
+    assert_eq!(rig.lines("info levels: sphere dropped count=1").len(), 1);
+    assert_eq!(rig.lines("info levels: mesh built slot=shell").len(), 1);
+    let calls = canvas.calls.borrow();
+    let draw = calls.iter().find(|call| call.starts_with("draw")).unwrap();
+    let yaw: f32 = draw.rsplit("yaw=").next().unwrap().parse().unwrap();
+    assert!(yaw > 0.0, "a spin of -90 degrees a second turns the loader's yaw the other way: {draw}");
 }
 
 #[test]
-fn the_mod_id_is_the_namespaced_module_string() {
-    assert_eq!(LevelsMod::NAMESPACE, "alaydriem");
-    assert_eq!(LevelsMod::NAME, "levels");
-    assert_eq!(LevelsMod::id(), LevelsMod::MODULE);
-    assert_eq!(LevelsMod::MODULE, "@alaydriem/levels");
+fn a_sphere_keeps_its_sub_block_position_in_the_draw() {
+    let rig = LevelsRig::with_manager("");
+    rig.set_client(LevelsRig::in_world());
+    rig.tick();
+    rig.press(SPHERE_DROP);
+
+    let canvas = rig.frame();
+
+    let calls = canvas.calls.borrow();
+    let draw = calls.iter().find(|call| call.starts_with("draw")).unwrap();
+    let parts: Vec<&str> = draw.split(' ').collect();
+    let (x, y, z): (f64, f64, f64) = (parts[2].parse().unwrap(), parts[3].parse().unwrap(), parts[4].parse().unwrap());
+    assert_eq!((x, y, z), (10.5, 64.0, -19.5));
+}
+
+#[test]
+fn clearing_the_spheres_is_logged_and_frees_the_shell_mesh() {
+    let rig = LevelsRig::with_manager("");
+    rig.set_client(LevelsRig::in_world());
+    rig.tick();
+    rig.press(SPHERE_DROP);
+    rig.frame();
+
+    rig.press(SPHERE_CLEAR);
+    let canvas = rig.frame();
+
+    assert_eq!(rig.lines("info levels: spheres cleared").len(), 1);
+    assert_eq!(canvas.frees.borrow().len(), 1);
+    assert_eq!(rig.game.live_meshes(), 0);
+}
+
+#[test]
+fn the_toggle_off_releases_the_lease_and_frees_the_meshes() {
+    let rig = LevelsRig::turned_on();
+    rig.frame();
+    assert_eq!(rig.game.live_meshes(), 1);
+
+    rig.press(TOGGLE);
+    let canvas = rig.frame();
+
+    assert_eq!(rig.lines("info levels: world draw lease released").len(), 1);
+    assert_eq!(LevelsRig::released(), [Capability::WorldDraw]);
+    assert_eq!(canvas.frees.borrow().len(), 1);
+    assert!(canvas.calls.borrow().is_empty());
+}
+
+#[test]
+fn a_graphics_mode_switch_rebuilds_the_labels_in_the_same_frame() {
+    let rig = LevelsRig::turned_on();
+    rig.frame();
+
+    rig.game.switch_graphics();
+    let canvas = rig.frame();
+
+    assert_eq!(rig.lines("info levels: meshes stale, rebuilt slot=label").len(), 1);
+    let calls = canvas.calls.borrow();
+    assert!(calls[0].starts_with("build quads="), "{calls:?}");
+    assert!(calls[1].starts_with("draw "), "{calls:?}");
+}
+
+#[test]
+fn leaving_the_world_turns_the_overlay_off_and_a_new_world_builds_again() {
+    let rig = LevelsRig::turned_on();
+    rig.frame();
+
+    rig.game.leave_mesh_world();
+    rig.set_client(FakeClient::default());
+    rig.tick();
+    rig.set_client(LevelsRig::in_world());
+    rig.tick();
+    rig.press(TOGGLE);
+    let canvas = rig.frame();
+
+    assert_eq!(LevelsRig::released(), [Capability::WorldDraw]);
+    assert_eq!(LevelsRig::acquired(), [Capability::WorldDraw, Capability::WorldDraw]);
+    assert_eq!(rig.lines("info levels: mesh built slot=label").len(), 2);
+    assert!(canvas.calls.borrow()[0].starts_with("build quads="));
+    assert!(rig.lines("info levels: meshes stale, rebuilt slot=label").is_empty());
+}
+
+#[test]
+fn a_hidden_hud_draws_no_labels() {
+    let rig = LevelsRig::turned_on();
+    rig.set_client(FakeClient { hide_hud: true, ..LevelsRig::in_world() });
+    rig.tick();
+
+    let canvas = rig.frame();
+
+    assert!(canvas.calls.borrow().is_empty());
+    assert!(rig.lines("info levels: mesh built slot=label").is_empty());
+}
+
+#[test]
+fn an_open_menu_ignores_the_toggle() {
+    let rig = LevelsRig::with_manager("");
+    rig.set_client(FakeClient { showing_menu: true, ..LevelsRig::in_world() });
+    rig.tick();
+
+    rig.press(TOGGLE);
+    let canvas = rig.frame();
+
+    assert!(LevelsRig::acquired().is_empty());
+    assert!(canvas.calls.borrow().is_empty());
+}
+
+#[test]
+fn a_dimension_change_drops_the_labels_without_a_stale_rebuild() {
+    let rig = LevelsRig::turned_on();
+    rig.frame();
+
+    let empty_nether = FakeWorld { surfaces: Default::default(), ..LevelsRig::world() };
+    rig.set_client(FakeClient { dimension: Some(1), world: Some(empty_nether), ..LevelsRig::in_world() });
+    rig.tick();
+    let canvas = rig.frame();
+
+    assert_eq!(canvas.frees.borrow().len(), 1);
+    assert!(rig.lines("info levels: meshes stale, rebuilt slot=label").is_empty());
+}
+
+#[test]
+fn with_telemetry_on_the_draw_is_logged_with_the_graphics_mode() {
+    let rig = LevelsRig::with_manager("telemetry = true\n");
+    rig.set_client(LevelsRig::in_world());
+    rig.tick();
+    rig.press(TOGGLE);
+    rig.tick();
+
+    rig.render(&FakeCanvas { camera_position: Some(LevelsRig::FEET), vibrant: true, ..FakeCanvas::default() });
+
+    assert_eq!(rig.lines("info levels: world drawn meshes=1 vibrant=1").len(), 1);
+}
+
+#[test]
+fn without_telemetry_no_draw_line_is_logged() {
+    let rig = LevelsRig::turned_on();
+
+    rig.frame();
+
+    assert!(rig.lines("info levels: world drawn").is_empty());
+}
+
+#[test]
+fn a_world_render_before_the_manager_connects_draws_nothing() {
+    let rig = LevelsRig::with_manager("");
+    rig.set_client(LevelsRig::in_world());
+    let canvas = FakeCanvas::default();
+
+    rig.game.raise_world_rendered(&canvas);
+
+    assert!(canvas.calls.borrow().is_empty());
+}
+
+#[test]
+fn disable_while_on_releases_the_lease_before_the_link_closes() {
+    let rig = LevelsRig::turned_on();
+    rig.frame();
+
+    rig.game.disable::<LevelsMod>();
+
+    let calls = FakeTable::calls();
+    let release = calls.iter().position(|call| *call == "release").unwrap();
+    let unregister = calls.iter().position(|call| *call == "unregister").unwrap();
+    assert!(release < unregister, "{calls:?}");
+    assert_eq!(rig.lines("info levels: world draw lease released").len(), 1);
+}
+
+#[test]
+fn an_unreadable_dimension_is_logged_once_per_change_of_state() {
+    let rig = LevelsRig::turned_on();
+    let unreadable = || FakeClient { dimension: None, ..LevelsRig::in_world() };
+    let line = "warn levels: dimension unreadable";
+
+    rig.set_client(unreadable());
+    rig.tick();
+    rig.tick();
+    assert_eq!(rig.lines(line).len(), 1);
+
+    rig.set_client(LevelsRig::in_world());
+    rig.tick();
+    assert_eq!(rig.lines(line).len(), 1);
+
+    rig.set_client(unreadable());
+    rig.tick();
+    assert_eq!(rig.lines(line).len(), 2);
+}
+
+#[test]
+fn a_revoked_lease_frees_the_meshes_and_the_next_frame_draws_nothing() {
+    let rig = LevelsRig::turned_on();
+    rig.frame();
+    assert_eq!(rig.game.live_meshes(), 1);
+
+    FakeTable::push_event(amm_core::structs::event::ModEvent::Revoked {
+        capability: Capability::WorldDraw,
+        by: amm_core::structs::registry::ModIndex(2),
+    });
+    rig.tick();
+    let canvas = rig.frame();
+
+    assert_eq!(canvas.frees.borrow().len(), 1);
+    assert!(canvas.calls.borrow().is_empty());
+    assert_eq!(rig.game.live_meshes(), 0);
+}
+
+#[test]
+fn a_manager_that_is_gone_frees_the_meshes_and_the_next_frame_draws_nothing() {
+    let rig = LevelsRig::turned_on();
+    rig.frame();
+
+    FakeTable::gone(&rig.game);
+    rig.tick();
+    let canvas = rig.frame();
+
+    assert_eq!(canvas.frees.borrow().len(), 1);
+    assert!(canvas.calls.borrow().is_empty());
+    assert_eq!(rig.game.live_meshes(), 0);
+}
+
+#[test]
+fn a_change_of_graphics_mode_is_logged_once() {
+    let rig = LevelsRig::turned_on();
+
+    rig.frame();
+    rig.frame();
+    rig.render(&FakeCanvas { camera_position: Some(LevelsRig::FEET), vibrant: true, ..FakeCanvas::default() });
+    rig.render(&FakeCanvas { camera_position: Some(LevelsRig::FEET), vibrant: true, ..FakeCanvas::default() });
+
+    assert_eq!(
+        rig.lines("info levels: graphics mode seen"),
+        ["info levels: graphics mode seen vibrant=0", "info levels: graphics mode seen vibrant=1"]
+    );
 }

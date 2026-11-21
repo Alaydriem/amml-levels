@@ -1,7 +1,4 @@
-use std::path::Path;
-
-use amm_client::link::ApiTable;
-use amm_core::errors::LinkError;
+use amm_client::link::LinkState;
 use levels_core::services::LevelsController;
 use levels_core::structs::frame::{ColumnRequest, FrameStatus};
 use levels_core::structs::light::SurfaceSample;
@@ -20,11 +17,10 @@ pub struct Overlay {
 }
 
 impl Overlay {
-    // registers with the manager and starts core from the manager's config; an unreadable config gives the defaults
-    pub fn connect(table: ApiTable, config_dir: &Path) -> Result<Self, LinkError> {
-        let session = ManagerSession::connect(table, config_dir)?;
+    // starts core from the manager's config on a connected session; an unreadable config gives the defaults
+    pub fn connect(session: ManagerSession) -> Self {
         let controller = LevelsController::new(session.config().unwrap_or_default());
-        Ok(Self::new(controller, session))
+        Self::new(controller, session)
     }
 
     pub fn new(controller: LevelsController, session: ManagerSession) -> Self {
@@ -73,6 +69,14 @@ impl Overlay {
 
     pub fn is_in_world(&self) -> bool {
         self.controller.is_in_world()
+    }
+
+    pub fn link_state(&self) -> LinkState {
+        self.session.state()
+    }
+
+    pub fn is_telemetry_on(&self) -> bool {
+        self.controller.is_telemetry_on()
     }
 
     pub fn is_on(&self) -> bool {

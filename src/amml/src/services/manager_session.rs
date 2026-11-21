@@ -1,14 +1,14 @@
-use std::path::Path;
-
-use amm_client::link::{ApiTable, EventDrain, ManagerLink};
+use amm_client::link::{EventDrain, LinkState, ManagerLink};
 use amm_core::errors::LinkError;
 use amm_core::structs::descriptor::Capability;
 use amm_core::structs::event::{KeybindPhase, ModEvent};
 use amm_core::structs::lease::AcquireOutcome;
+use amml_api::Ctx;
 use levels_core::config::LevelsConfig;
 use levels_core::services::LevelsController;
 use levels_core::structs::manager::ManagerSignal;
 
+use crate::services::LevelsLog;
 use crate::types::LeaseState;
 
 // the registration with the mod manager: turns its events into signals for core and keeps the WorldDraw lease
@@ -18,6 +18,7 @@ pub struct ManagerSession {
     // events of one poll, at most one drain buffer, sized once in connect
     pending: Vec<ModEvent>,
     lease: LeaseState,
+    log: LevelsLog,
 }
 
 impl ManagerSession {
@@ -30,10 +31,24 @@ impl ManagerSession {
     const SPHERE_REMOVE_ACTION: u16 = 3;
     const SPHERE_CLEAR_ACTION: u16 = 4;
 
-    // `config_dir` is the mod's own config folder, an absolute path
-    pub fn connect(table: ApiTable, config_dir: &Path) -> Result<Self, LinkError> {
-        let link = ManagerLink::without_frame(table, Self::DESCRIPTOR, config_dir)?;
-        Ok(Self { link, pending: Vec::with_capacity(EventDrain::CAPACITY), lease: LeaseState::Released })
+    // the link waits for the manager's tables; `state` says when it is connected
+    pub fn start(ctx: &Ctx) -> Result<Self, LinkError> {
+        let link = ManagerLink::start_without_frame(ctx, Self::DESCRIPTOR)?;
+        Ok(Self {
+            link,
+            pending: Vec::with_capacity(EventDrain::CAPACITY),
+            lease: LeaseState::Released,
+            log: LevelsLog::new(ctx.log()),
+        })
+    }
+
+    pub fn state(&self) -> LinkState {
+        self.link.state()
+    }
+
+    // true once every mod has loaded and none was the manager
+    pub fn manager_missing(&self) -> bool {
+        matches!(self.link.config::<LevelsConfig>(), Err(LinkError::NoManager))
     }
 
     // the manager's checked config.hcl; None, with a warning, when it cannot be read
@@ -72,6 +87,7 @@ impl ManagerSession {
         if matches!(self.lease, LeaseState::Held | LeaseState::Suspended) {
             self.link.release(Capability::WorldDraw);
             self.lease = LeaseState::Released;
+            self.log.lease_released();
         }
     }
 
@@ -79,6 +95,7 @@ impl ManagerSession {
         match self.link.acquire(Capability::WorldDraw) {
             Ok(AcquireOutcome::Granted | AcquireOutcome::Preempted) => {
                 self.lease = LeaseState::Held;
+                self.log.lease_held();
                 controller.signal(ManagerSignal::LeaseRestored);
             }
             Ok(AcquireOutcome::Denied { .. }) => {
@@ -99,7 +116,9 @@ impl ManagerSession {
         match event {
             ModEvent::Keybind { action, phase: KeybindPhase::Pressed } => {
                 if let Some(signal) = Self::signal_for_action(action) {
+                    let before = controller.marker_count();
                     controller.signal(signal);
+                    self.log_spheres(signal, before, controller.marker_count());
                 }
             }
             ModEvent::Suspended { capability: Capability::WorldDraw, .. } => {
@@ -125,7 +144,7 @@ impl ManagerSession {
                     controller.signal(ManagerSignal::LeaseRestored);
                 }
             }
-            ModEvent::Disabled => {
+            ModEvent::Disabled | ModEvent::ManagerGone => {
                 self.lease = LeaseState::Released;
                 controller.signal(ManagerSignal::Disabled);
             }
@@ -138,6 +157,16 @@ impl ManagerSession {
         }
     }
 
+    // one line for a sphere key that changed the spheres
+    fn log_spheres(&self, signal: ManagerSignal, before: usize, after: usize) {
+        match signal {
+            ManagerSignal::SphereDropPressed if after > before => self.log.sphere_dropped(after),
+            ManagerSignal::SphereRemovePressed if after < before => self.log.sphere_removed(after),
+            ManagerSignal::SphereClearPressed if before > 0 && after == 0 => self.log.spheres_cleared(),
+            _ => {}
+        }
+    }
+
     fn signal_for_action(action: u16) -> Option<ManagerSignal> {
         match action {
             Self::TOGGLE_ACTION => Some(ManagerSignal::TogglePressed),
@@ -146,6 +175,16 @@ impl ManagerSession {
             Self::SPHERE_REMOVE_ACTION => Some(ManagerSignal::SphereRemovePressed),
             Self::SPHERE_CLEAR_ACTION => Some(ManagerSignal::SphereClearPressed),
             _ => None,
+        }
+    }
+}
+
+impl Drop for ManagerSession {
+    // the lease goes back before the link closes
+    fn drop(&mut self) {
+        if matches!(self.lease, LeaseState::Held | LeaseState::Suspended) {
+            self.link.release(Capability::WorldDraw);
+            self.log.lease_released();
         }
     }
 }

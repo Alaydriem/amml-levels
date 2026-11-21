@@ -1,11 +1,10 @@
-use std::path::Path;
-
-use alaydriem_levels::services::Overlay;
+use alaydriem_levels::services::{ManagerSession, Overlay};
 use amm_client::test_support::FakeTable;
 use amm_core::structs::descriptor::Capability;
 use amm_core::structs::event::{KeybindPhase, ModEvent};
 use amm_core::structs::lease::AcquireOutcome;
 use amm_core::structs::registry::ModIndex;
+use amml_api::testing::FakeGame;
 use levels_core::structs::frame::FrameStatus;
 use levels_core::structs::light::SurfaceSample;
 use levels_core::structs::world::{BlockPos, ColumnPos};
@@ -13,9 +12,10 @@ use levels_core::structs::world::{BlockPos, ColumnPos};
 const OTHER_MOD: ModIndex = ModIndex(2);
 const TOGGLE: ModEvent = ModEvent::Keybind { action: 0, phase: KeybindPhase::Pressed };
 
-// an overlay registered on this thread fake manager
+// an overlay registered on this thread fake manager; the game stays alive with it
 struct Session {
     overlay: Overlay,
+    game: FakeGame,
 }
 
 impl Session {
@@ -25,9 +25,12 @@ impl Session {
 
     // `config` is the config.hcl text the fake manager hands out
     fn with_config(config: &str) -> Self {
+        let game = FakeTable::game();
+        FakeTable::provide(&game.ctx()).unwrap();
         FakeTable::set_config(config);
-        let overlay = Overlay::connect(FakeTable::table(), Path::new(FakeTable::CONFIG_DIR)).unwrap();
-        Self { overlay }
+        let ctx = FakeTable::ctx_of(&game, ManagerSession::DESCRIPTOR);
+        let session = ManagerSession::start(&ctx).unwrap();
+        Self { overlay: Overlay::connect(session), game }
     }
 
     // in world, no menu, overworld, feet at (10, 64, -20)
@@ -91,13 +94,6 @@ fn released() -> Vec<Capability> {
 }
 
 #[test]
-fn registers_without_a_frame_callback() {
-    let _session = Session::new();
-
-    assert!(FakeTable::with(|state| state.registered_without_frame()));
-}
-
-#[test]
 fn toggle_keybind_turns_on_and_acquires_world_draw() {
     let mut session = Session::new();
 
@@ -105,6 +101,7 @@ fn toggle_keybind_turns_on_and_acquires_world_draw() {
 
     assert_eq!(acquired(), [Capability::WorldDraw]);
     assert!(session.columns_at(1) > 0);
+    assert!(session.game.logs().contains(&"info levels: world draw lease held".to_string()));
 }
 
 #[test]
@@ -224,6 +221,32 @@ fn new_keybinds_reach_core() {
 }
 
 #[test]
+fn the_sphere_keys_are_logged() {
+    let mut session = Session::new();
+    session.frame(Session::in_world(0.0));
+
+    FakeTable::push_event(action(2));
+    FakeTable::push_event(action(2));
+    session.columns_at(1);
+    FakeTable::push_event(action(3));
+    session.columns_at(2);
+    FakeTable::push_event(action(4));
+    session.columns_at(3);
+
+    let logs = session.game.logs();
+    let lines: Vec<&String> = logs.iter().filter(|line| line.contains("sphere")).collect();
+    assert_eq!(
+        lines,
+        [
+            "info levels: sphere dropped count=1",
+            "info levels: sphere dropped count=2",
+            "info levels: sphere removed count=1",
+            "info levels: spheres cleared"
+        ]
+    );
+}
+
+#[test]
 fn revoke_waits_for_capability_available() {
     let mut session = Session::new();
     session.turn_on();
@@ -253,6 +276,17 @@ fn disabled_turns_overlay_off() {
     FakeTable::push_event(ModEvent::Disabled);
 
     assert_eq!(session.columns_at(1), 0);
+    assert!(released().is_empty());
+}
+
+#[test]
+fn a_manager_that_is_gone_turns_the_overlay_off() {
+    let mut session = Session::new();
+    session.turn_on();
+    FakeTable::gone(&session.game);
+
+    assert_eq!(session.columns_at(1), 0);
+    assert!(!session.overlay.is_on());
     assert!(released().is_empty());
 }
 

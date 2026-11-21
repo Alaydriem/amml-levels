@@ -1,7 +1,8 @@
-// what one world draw cost: the mesh builds and the draws in microseconds, and the meshes built
+// what one world draw cost: the mesh builds and the draws in microseconds, the meshes built and the meshes drawn
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct WorldDrawStats {
     pub build_us: f32,
     pub draw_us: f32,
     pub meshes_built: u32,
+    pub meshes_drawn: u32,
 }
