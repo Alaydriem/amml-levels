@@ -84,8 +84,11 @@ fn report_carries_marker_counters() {
     let mut telemetry = Telemetry::new(true, BUDGET);
     telemetry.frame(0.0, 0);
     telemetry.world(3, 1200);
-    telemetry.world_timing(10.0, 1.0, 2);
-    telemetry.world_timing(30.0, 3.0, 1);
+    telemetry.world_timing(10.0, 1.0, 2, 4000);
+    telemetry.world_timing(30.0, 3.0, 1, 1000);
+    telemetry.label_build();
+    telemetry.label_build();
+    telemetry.label_build();
     telemetry.frame(2.0, 0);
 
     let report = telemetry.take_report(2.0).expect("a report after two seconds");
@@ -93,4 +96,6 @@ fn report_carries_marker_counters() {
     assert_eq!((report.markers, report.quads_drawn, report.meshes_built), (3, 1200, 3));
     assert!((report.world_build_us_avg - 20.0).abs() < 1e-3);
     assert!((report.world_draw_us_avg - 2.0).abs() < 1e-3);
+    assert!((report.label_builds_per_s - 1.5).abs() < 1e-3);
+    assert!((report.quads_converted_per_s - 2500.0).abs() < 1e-1);
 }

@@ -1,4 +1,4 @@
-use crate::structs::draw::ColorQuad;
+use crate::structs::draw::{ColorQuad, LabelPart};
 use crate::structs::marker::MarkerInstance;
 use crate::structs::world::BlockPos;
 
@@ -9,6 +9,9 @@ pub struct WorldDrawPlan<'a> {
     pub label_origin: BlockPos,
     pub label_version: u64,
     pub label_quads: &'a [ColorQuad],
+    // the label quads cut into the meshes the host builds; a part whose key is unchanged keeps its mesh. Empty when
+    // there are no label quads
+    pub label_parts: &'a [LabelPart],
     pub border_origin: BlockPos,
     pub border_version: u64,
     pub border_quads: &'a [ColorQuad],

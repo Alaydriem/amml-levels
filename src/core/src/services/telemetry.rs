@@ -21,6 +21,8 @@ pub struct Telemetry {
     markers: u32,
     quads_drawn: u32,
     meshes_built: u32,
+    label_builds: u32,
+    quads_converted: u64,
     world_timings: u32,
     world_build_us: f64,
     world_draw_us: f64,
@@ -45,6 +47,8 @@ impl Telemetry {
             markers: 0,
             quads_drawn: 0,
             meshes_built: 0,
+            label_builds: 0,
+            quads_converted: 0,
             world_timings: 0,
             world_build_us: 0.0,
             world_draw_us: 0.0,
@@ -102,8 +106,16 @@ impl Telemetry {
         }
     }
 
-    pub fn world_timing(&mut self, build_us: f32, draw_us: f32, meshes_built: u32) {
+    // one run of the label draw list and mesh build
+    pub fn label_build(&mut self) {
         if self.enabled {
+            self.label_builds = self.label_builds.saturating_add(1);
+        }
+    }
+
+    pub fn world_timing(&mut self, build_us: f32, draw_us: f32, meshes_built: u32, quads_converted: u32) {
+        if self.enabled {
+            self.quads_converted = self.quads_converted.saturating_add(quads_converted as u64);
             self.world_timings += 1;
             self.world_build_us += build_us as f64;
             self.world_draw_us += draw_us as f64;
@@ -127,6 +139,8 @@ impl Telemetry {
             markers: self.markers,
             quads_drawn: self.quads_drawn,
             meshes_built: self.meshes_built,
+            label_builds_per_s: (self.label_builds as f64 / elapsed) as f32,
+            quads_converted_per_s: (self.quads_converted as f64 / elapsed) as f32,
             world_build_us_avg: Self::average(self.world_build_us, self.world_timings) as f32,
             world_draw_us_avg: Self::average(self.world_draw_us, self.world_timings) as f32,
             memory_bytes: self.memory_bytes,
@@ -146,6 +160,8 @@ impl Telemetry {
         self.sample_us = 0.0;
         self.draw_us = 0.0;
         self.meshes_built = 0;
+        self.label_builds = 0;
+        self.quads_converted = 0;
         self.world_timings = 0;
         self.world_build_us = 0.0;
         self.world_draw_us = 0.0;

@@ -1,5 +1,5 @@
 use amml_api::{ApiError, BlockPos, ColorQuad, MeshId, Transform, Vec3, WorldCanvas};
-use levels_core::config::{MAX_LABELS, MAX_MARKERS};
+use levels_core::config::MAX_MARKERS;
 use levels_core::services::{ChunkBorderPlanner, LabelMeshBuilder, SphereShellBuilder};
 use levels_core::structs::marker::WorldDrawPlan;
 use levels_core::structs::world::BlockPos as CoreBlockPos;
@@ -22,8 +22,12 @@ pub struct WorldDrawer {
     log: LevelsLog,
 }
 
+// a part of at most MAX_LABELS_PER_PART whole labels fits one mesh of the loader
+const _: () =
+    assert!(LabelMeshBuilder::MAX_LABELS_PER_PART * LabelMeshBuilder::MAX_QUADS_PER_LABEL <= MeshSlot::MAX_QUADS);
+
 impl WorldDrawer {
-    pub const LABEL_MESHES: usize = MeshSlot::meshes_for(LabelMeshBuilder::MAX_QUADS_PER_LABEL * MAX_LABELS as usize);
+    pub const LABEL_MESHES: usize = LabelMeshBuilder::MAX_PARTS;
     pub const BORDER_MESHES: usize = MeshSlot::meshes_for(ChunkBorderPlanner::max_quads());
     pub const SHELL_MESHES: usize = MeshSlot::meshes_for(SphereShellBuilder::pair_quad_count());
 
@@ -67,7 +71,18 @@ impl WorldDrawer {
     }
 
     fn sync(&mut self, canvas: &WorldCanvas<'_>, plan: &WorldDrawPlan<'_>, stats: &mut WorldDrawStats) {
-        self.label.sync(canvas, plan.label_version, plan.label_quads, &mut self.scratch, stats);
+        if plan.label_parts.is_empty() {
+            self.label.sync(canvas, plan.label_version, plan.label_quads, &mut self.scratch, stats);
+        } else {
+            self.label.sync_parts(
+                canvas,
+                plan.label_version,
+                plan.label_quads,
+                plan.label_parts,
+                &mut self.scratch,
+                stats,
+            );
+        }
         self.border.sync(canvas, plan.border_version, plan.border_quads, &mut self.scratch, stats);
         self.shell.sync(canvas, plan.shell_version, plan.shell_quads, &mut self.scratch, stats);
     }

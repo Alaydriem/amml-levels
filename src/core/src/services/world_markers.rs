@@ -99,6 +99,7 @@ impl WorldMarkers {
             label_origin: BlockPos::default(),
             label_version: 0,
             label_quads: &[],
+            label_parts: &[],
             border_origin: self.planner.origin(),
             border_version: self.planner.version(),
             border_quads: self.planner.quads(),

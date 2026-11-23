@@ -2,6 +2,7 @@ use crate::config::LevelsConfig;
 use crate::services::{
     DrawListBuilder, LabelGrid, LabelMeshBuilder, LightClassifier, ScanPlanner, Telemetry, WorldMarkers,
 };
+use crate::structs::draw::LabelStamp;
 use crate::structs::frame::{ColumnRequest, FrameStatus};
 use crate::structs::light::SurfaceSample;
 use crate::structs::manager::ManagerSignal;
@@ -12,6 +13,11 @@ use crate::structs::world::{BlockPos, ColumnPos};
 // longest frame step fed to the scan planner, so a hitch or a paused game does not flood one frame
 const MAX_FRAME_SECONDS: f64 = 0.1;
 const BYTES_PER_MB: u64 = 1024 * 1024;
+// the label mesh is relative to the player's block rounded down to a multiple of this
+const ORIGIN_SNAP: i32 = 16;
+// the label mesh keeps its origin until the player is farther than this from it on an axis, so the origin (and with it
+// every part's quads) changes once in many blocks of walking
+const ORIGIN_REACH: i32 = 48;
 
 // the on/off state, the world lifecycle and the per-frame flow from scan requests to the draw list
 pub struct LevelsController {
@@ -30,6 +36,13 @@ pub struct LevelsController {
     last_report: Option<TelemetryReport>,
     // 0 when the labels are not drawn this frame
     label_version: u64,
+    // label draw list and mesh builds since the controller was made
+    label_builds: u64,
+    // what the last label build depended on; None when the next frame has to build
+    label_stamp: Option<LabelStamp>,
+    // bumped when the label look or the light bands change
+    style_revision: u64,
+    label_origin: BlockPos,
 }
 
 impl LevelsController {
@@ -61,6 +74,10 @@ impl LevelsController {
             core_bytes,
             last_report: None,
             label_version: 0,
+            label_builds: 0,
+            label_stamp: None,
+            style_revision: 0,
+            label_origin: BlockPos::default(),
         }
     }
 
@@ -104,14 +121,18 @@ impl LevelsController {
         if !is_labels_shown && markers.is_none() {
             return None;
         }
-        let (label_origin, label_quads) =
-            if label_version == 0 { (BlockPos::default(), &[][..]) } else { (self.mesh.origin(), self.mesh.quads()) };
+        let (label_origin, label_quads, label_parts) = if label_version == 0 {
+            (BlockPos::default(), &[][..], &[][..])
+        } else {
+            (self.mesh.origin(), self.mesh.quads(), self.mesh.parts())
+        };
         let plan = match markers {
-            Some(plan) => WorldDrawPlan { label_origin, label_version, label_quads, ..plan },
+            Some(plan) => WorldDrawPlan { label_origin, label_version, label_quads, label_parts, ..plan },
             None => WorldDrawPlan {
                 label_origin,
                 label_version,
                 label_quads,
+                label_parts,
                 border_origin: BlockPos::default(),
                 border_version: 0,
                 border_quads: &[],
@@ -131,8 +152,8 @@ impl LevelsController {
         self.is_on || self.markers.is_active()
     }
 
-    pub fn world_timing(&mut self, build_us: f32, draw_us: f32, meshes_built: u32) {
-        self.telemetry.world_timing(build_us, draw_us, meshes_built);
+    pub fn world_timing(&mut self, build_us: f32, draw_us: f32, meshes_built: u32, quads_converted: u32) {
+        self.telemetry.world_timing(build_us, draw_us, meshes_built, quads_converted);
     }
 
     // applies the settings that take effect at once; scan and memory budget size buffers in new() and keep
@@ -140,6 +161,7 @@ impl LevelsController {
     pub fn apply_config(&mut self, config: LevelsConfig) {
         let config = config.sanitized();
         self.builder.restyle(config.label, LightClassifier::new(config.light));
+        self.style_revision += 1;
         self.telemetry.set_enabled(config.telemetry);
         self.markers.apply_config(config.borders, config.spheres);
     }
@@ -211,6 +233,11 @@ impl LevelsController {
         self.last_status.is_some_and(|status| status.in_world)
     }
 
+    // how many times the label draw list and mesh were built
+    pub fn label_builds(&self) -> u64 {
+        self.label_builds
+    }
+
     pub fn max_labels(&self) -> usize {
         self.builder.max_labels()
     }
@@ -225,12 +252,38 @@ impl LevelsController {
         let Some(status) = self.last_status.filter(|status| !status.hud_hidden) else {
             self.telemetry.labels(0);
             self.label_version = 0;
+            self.label_stamp = None;
             return;
         };
+        let stamp = LabelStamp {
+            grid_revision: self.grid.revision(),
+            style_revision: self.style_revision,
+            feet: status.feet,
+            sky_darken: status.sky_darken,
+            quarter: LabelMeshBuilder::quarter_for_yaw(status.yaw),
+        };
+        if self.label_stamp == Some(stamp) && self.label_version != 0 {
+            self.telemetry.labels(self.builder.labels().len());
+            return;
+        }
+        self.label_stamp = Some(stamp);
         let scale = self.builder.scale();
+        self.label_builds += 1;
+        self.telemetry.label_build();
+        self.label_origin = Self::origin_near(self.label_origin, status.feet);
         let labels = self.builder.build(&self.grid, status.feet, status.sky_darken);
         self.telemetry.labels(labels.len());
-        self.label_version = self.mesh.build(labels, status.yaw, scale);
+        self.label_version = self.mesh.build(labels, self.label_origin, status.yaw, scale);
+    }
+
+    // `current` while the player is within ORIGIN_REACH of it, else the player's block snapped to ORIGIN_SNAP
+    fn origin_near(current: BlockPos, feet: BlockPos) -> BlockPos {
+        let near = |a: i32, b: i32| (a - b).abs() <= ORIGIN_REACH;
+        if near(feet.x, current.x) && near(feet.y, current.y) && near(feet.z, current.z) {
+            return current;
+        }
+        let snap = |value: i32| value.div_euclid(ORIGIN_SNAP) * ORIGIN_SNAP;
+        BlockPos { x: snap(feet.x), y: snap(feet.y), z: snap(feet.z) }
     }
 
     fn track_world(&mut self, status: &FrameStatus) {
@@ -297,6 +350,8 @@ impl LevelsController {
             markers: report.markers,
             quads_drawn: report.quads_drawn,
             meshes_built: report.meshes_built,
+            label_builds_per_s: report.label_builds_per_s,
+            quads_converted_per_s: report.quads_converted_per_s,
             world_build_us: report.world_build_us_avg,
             world_draw_us: report.world_draw_us_avg,
             memory_mb: memory_mb,

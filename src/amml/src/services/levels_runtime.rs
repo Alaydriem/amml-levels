@@ -96,7 +96,7 @@ impl LevelsRuntime {
         let stats = drawer.render(&canvas, overlay.world_plan());
         let total_us = ((FrameStatusReader::now_seconds() - start) * 1_000_000.0) as f32;
         overlay.timing(*sample_us, total_us, drawer.resident_bytes());
-        overlay.world_timing(stats.build_us, stats.draw_us, stats.meshes_built);
+        overlay.world_timing(stats.build_us, stats.draw_us, stats.meshes_built, stats.quads_converted);
         if overlay.is_telemetry_on() && stats.meshes_drawn > 0 {
             let now = FrameStatusReader::now_seconds();
             if drawn_logged_at.is_none_or(|last| now - last >= Self::DRAWN_LINE_SECONDS) {

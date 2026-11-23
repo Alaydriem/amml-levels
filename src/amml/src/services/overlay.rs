@@ -63,8 +63,8 @@ impl Overlay {
         self.controller.world_plan()
     }
 
-    pub fn world_timing(&mut self, build_us: f32, draw_us: f32, meshes_built: u32) {
-        self.controller.world_timing(build_us, draw_us, meshes_built);
+    pub fn world_timing(&mut self, build_us: f32, draw_us: f32, meshes_built: u32, quads_converted: u32) {
+        self.controller.world_timing(build_us, draw_us, meshes_built, quads_converted);
     }
 
     pub fn is_in_world(&self) -> bool {

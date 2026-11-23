@@ -433,3 +433,147 @@ fn the_telemetry_setting_and_the_sphere_count_are_readable() {
     controller.signal(ManagerSignal::SphereClearPressed);
     assert_eq!(controller.marker_count(), 0);
 }
+
+// frames that change nothing the labels depend on, each followed by the plan the host asks for
+fn idle_frames(controller: &mut LevelsController, from: u32, count: u32) {
+    for i in from..from + count {
+        controller.frame(in_world(i));
+        controller.world_plan().expect("labels on");
+    }
+}
+
+fn controller_with_labels() -> LevelsController {
+    let mut controller = turned_on();
+    controller.frame(in_world(1));
+    submit_under_feet(&mut controller);
+    controller
+}
+
+#[test]
+fn a_hundred_frames_with_unchanged_inputs_build_the_labels_once() {
+    let mut controller = controller_with_labels();
+
+    idle_frames(&mut controller, 2, 100);
+
+    assert_eq!(controller.label_builds(), 1);
+}
+
+#[test]
+fn storing_the_same_samples_again_builds_nothing() {
+    let mut controller = controller_with_labels();
+    idle_frames(&mut controller, 2, 3);
+
+    submit_under_feet(&mut controller);
+    idle_frames(&mut controller, 5, 3);
+
+    assert_eq!(controller.label_builds(), 1);
+}
+
+#[test]
+fn a_changed_light_value_builds_again() {
+    let mut controller = controller_with_labels();
+    idle_frames(&mut controller, 2, 3);
+
+    let brighter = SurfaceSample { block_light: 12, ..sample(feet().x, feet().y - 1, feet().z) };
+    controller.submit_column(feet().column(), &[brighter]);
+    idle_frames(&mut controller, 5, 3);
+
+    assert_eq!(controller.label_builds(), 2);
+}
+
+#[test]
+fn a_new_column_builds_again() {
+    let mut controller = controller_with_labels();
+    idle_frames(&mut controller, 2, 3);
+
+    controller.submit_column(BlockPos { x: 11, y: 0, z: -20 }.column(), &[sample(11, 63, -20)]);
+    idle_frames(&mut controller, 5, 3);
+
+    assert_eq!(controller.label_builds(), 2);
+}
+
+#[test]
+fn a_feet_change_builds_again() {
+    let mut controller = controller_with_labels();
+    idle_frames(&mut controller, 2, 3);
+
+    controller.frame(FrameStatus { feet: BlockPos { x: 11, ..feet() }, ..in_world(5) });
+    controller.world_plan().expect("labels on");
+    controller.frame(FrameStatus { feet: BlockPos { x: 11, ..feet() }, ..in_world(6) });
+    controller.world_plan().expect("labels on");
+
+    assert_eq!(controller.label_builds(), 2);
+}
+
+#[test]
+fn a_sky_darkness_change_builds_again_and_changes_the_label() {
+    let mut controller = controller_with_labels();
+    controller
+        .submit_column(feet().column(), &[SurfaceSample { sky_light: 15, ..sample(feet().x, feet().y - 1, feet().z) }]);
+    controller.world_plan().expect("labels on");
+    let before = controller.world_plan().expect("labels on").label_version;
+
+    controller.frame(FrameStatus { sky_darken: 11, ..in_world(2) });
+    let after = controller.world_plan().expect("labels on").label_version;
+
+    assert_eq!(controller.label_builds(), 2);
+    assert_ne!(before, after);
+}
+
+#[test]
+fn a_yaw_quarter_change_builds_again_but_a_turn_inside_the_quarter_does_not() {
+    let mut controller = controller_with_labels();
+    idle_frames(&mut controller, 2, 2);
+
+    controller.frame(FrameStatus { yaw: 30.0, ..in_world(4) });
+    controller.world_plan().expect("labels on");
+    assert_eq!(controller.label_builds(), 1);
+
+    controller.frame(FrameStatus { yaw: 100.0, ..in_world(5) });
+    controller.world_plan().expect("labels on");
+    assert_eq!(controller.label_builds(), 2);
+}
+
+#[test]
+fn a_config_change_builds_again() {
+    let mut controller = controller_with_labels();
+    idle_frames(&mut controller, 2, 3);
+
+    let mut config = LevelsConfig::default();
+    config.label.scale = 2.0;
+    controller.apply_config(config);
+    idle_frames(&mut controller, 5, 3);
+
+    assert_eq!(controller.label_builds(), 2);
+}
+
+#[test]
+fn clearing_the_labels_and_showing_them_again_builds_again() {
+    let mut controller = controller_with_labels();
+    idle_frames(&mut controller, 2, 3);
+
+    controller.frame(FrameStatus { hud_hidden: true, ..in_world(5) });
+    assert_eq!(label_quads(&mut controller), 0);
+    controller.frame(in_world(6));
+    assert!(label_quads(&mut controller) > 0);
+
+    assert_eq!(controller.label_builds(), 2);
+}
+
+#[test]
+fn telemetry_counts_the_labels_again_when_the_lease_comes_back_without_a_new_build() {
+    let mut controller = turned_on_with(LevelsConfig { telemetry: true, ..LevelsConfig::default() });
+    controller.frame(in_world(1));
+    submit_under_feet(&mut controller);
+    assert!(label_quads(&mut controller) > 0);
+    controller.signal(ManagerSignal::LeaseLost);
+    controller.world_plan();
+    controller.signal(ManagerSignal::LeaseRestored);
+
+    run_window(&mut controller, 2);
+    controller.world_plan();
+    run_window(&mut controller, 130);
+
+    assert_eq!(controller.label_builds(), 1);
+    assert!(controller.last_report().is_some_and(|r| r.labels > 0));
+}

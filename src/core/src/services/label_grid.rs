@@ -11,6 +11,8 @@ pub struct LabelGrid {
     lens: Vec<usize>,
     samples: Vec<SurfaceSample>,
     total: usize,
+    // bumped when a stored sample changes, so a reader can tell the grid is the same as when it last looked
+    revision: u64,
 }
 
 impl LabelGrid {
@@ -23,6 +25,7 @@ impl LabelGrid {
             lens: vec![0; slots],
             samples: vec![SurfaceSample::default(); slots * MAX_COLUMN_SURFACES],
             total: 0,
+            revision: 0,
         }
     }
 
@@ -31,6 +34,13 @@ impl LabelGrid {
         let slot = self.slot(column);
         let kept = samples.len().min(MAX_COLUMN_SURFACES);
         let start = slot * MAX_COLUMN_SURFACES;
+        if self.columns[slot] == Some(column)
+            && self.lens[slot] == kept
+            && self.samples[start..start + kept] == samples[..kept]
+        {
+            return;
+        }
+        self.revision += 1;
         self.samples[start..start + kept].copy_from_slice(&samples[..kept]);
         self.total = self.total - self.lens[slot] + kept;
         self.lens[slot] = kept;
@@ -38,6 +48,7 @@ impl LabelGrid {
     }
 
     pub fn clear(&mut self) {
+        self.revision += 1;
         self.columns.fill(None);
         self.lens.fill(0);
         self.total = 0;
@@ -47,6 +58,10 @@ impl LabelGrid {
         let slots = self.columns.capacity() * std::mem::size_of::<Option<ColumnPos>>()
             + self.lens.capacity() * std::mem::size_of::<usize>();
         (slots + self.samples.capacity() * std::mem::size_of::<SurfaceSample>()) as u64
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     pub fn len(&self) -> usize {
