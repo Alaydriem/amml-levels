@@ -5,14 +5,18 @@ use amm_core::structs::descriptor::Capability;
 use amml_api::AmmlMod;
 use amml_api::testing::{FakeCanvas, FakeClient, FakeWorld};
 
-use crate::support::levels_rig::{BORDERS, LevelsRig, SPHERE_CLEAR, SPHERE_DROP, TOGGLE};
+use crate::support::levels_rig::{BORDERS, INFO, LevelsRig, SPHERE_CLEAR, SPHERE_DROP, TOGGLE};
 
 const MANIFEST: &str = include_str!("../amml.hcl");
 
-// the number after `key=` in a logged line
-fn field(line: &str, key: &str) -> usize {
-    let start = line.find(&format!("{key}=")).unwrap() + key.len() + 1;
-    line[start..].split(' ').next().unwrap().parse().unwrap()
+struct Fixture;
+
+impl Fixture {
+    // the number after `key=` in a logged line
+    fn field(line: &str, key: &str) -> usize {
+        let start = line.find(&format!("{key}=")).unwrap() + key.len() + 1;
+        line[start..].split(' ').next().unwrap().parse().unwrap()
+    }
 }
 
 #[test]
@@ -73,9 +77,9 @@ fn the_toggle_takes_the_lease_scans_and_draws_the_labels() {
     assert_eq!(LevelsRig::acquired(), [Capability::WorldDraw]);
     assert_eq!(rig.lines("info levels: world draw lease held").len(), 1);
     let scan = &rig.lines("info levels: scan")[0];
-    assert!(field(scan, "columns") > 0 && field(scan, "surfaces") > 0, "{scan}");
+    assert!(Fixture::field(scan, "columns") > 0 && Fixture::field(scan, "surfaces") > 0, "{scan}");
     let built = &rig.lines("info levels: mesh built slot=label")[0];
-    let quads = field(built, "quads");
+    let quads = Fixture::field(built, "quads");
     assert!(quads > 0, "{built}");
     let calls = canvas.calls.borrow();
     assert_eq!(calls[0], format!("build quads={quads} style=alpha/1/0/2/full/white"));
@@ -355,4 +359,33 @@ fn a_change_of_graphics_mode_is_logged_once() {
         rig.lines("info levels: graphics mode seen"),
         ["info levels: graphics mode seen vibrant=0", "info levels: graphics mode seen vibrant=1"]
     );
+}
+
+#[test]
+fn hud_lease_acquired_on_show_released_on_hide() {
+    let rig = LevelsRig::with_manager(
+        "info {
+  mode = \"hold\"
+}
+",
+    );
+    rig.set_client(LevelsRig::in_world());
+    rig.tick();
+
+    rig.press(INFO);
+    assert_eq!(LevelsRig::acquired(), [Capability::Hud]);
+    rig.release(INFO);
+
+    assert_eq!(LevelsRig::released(), [Capability::Hud]);
+}
+
+#[test]
+fn info_rows_are_optional() {
+    let hcl = LevelsMod::USES.to_hcl();
+    let start = hcl.find("  feature \"info\" {\n").expect("an info feature");
+    let block = &hcl[start..];
+    let block = &block[..block.find("\n  }\n").unwrap()];
+
+    assert_eq!(block.matches("required = false").count(), 11, "{block}");
+    assert!(!block.contains("required = true"), "{block}");
 }

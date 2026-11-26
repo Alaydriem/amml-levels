@@ -55,6 +55,94 @@ impl Rig {
     fn calls(&self) -> Vec<String> {
         self.canvas.calls.borrow().clone()
     }
+
+    fn builds(calls: &[String]) -> Vec<&String> {
+        calls.iter().filter(|call| call.starts_with("build")).collect()
+    }
+
+    fn draws(calls: &[String]) -> Vec<&String> {
+        calls.iter().filter(|call| call.starts_with("draw")).collect()
+    }
+
+    fn status(feet: BlockPos) -> FrameStatus {
+        FrameStatus {
+            time_seconds: 0.0,
+            in_world: true,
+            has_player: true,
+            menu_open: false,
+            hud_hidden: false,
+            dimension: 0,
+            feet,
+            sky_darken: 0,
+            yaw: 0.0,
+        }
+    }
+
+    // a field of two-digit labels on the columns around the origin: more quads than three loader meshes hold
+    fn field() -> LevelsController {
+        let mut controller = LevelsController::new(LevelsConfig::default());
+        controller.frame(Rig::status(BlockPos { x: 0, y: 64, z: 0 }));
+        controller.signal(ManagerSignal::TogglePressed);
+        for x in -20..20 {
+            for z in -20..20 {
+                controller.submit_column(
+                    levels_core::structs::world::ColumnPos { x, z },
+                    &[SurfaceSample { pos: BlockPos { x, y: 63, z }, block_light: 10, sky_light: 0 }],
+                );
+            }
+        }
+        controller
+    }
+
+    // The columns of a square of side 2 * 24 + 1 around `feet`, each with `layers` surfaces below the feet
+    fn submit_columns(
+        controller: &mut LevelsController,
+        xs: std::ops::RangeInclusive<i32>,
+        zs: std::ops::RangeInclusive<i32>,
+        layers: i32,
+    ) {
+        for x in xs {
+            for z in zs.clone() {
+                let samples: Vec<SurfaceSample> = (0..layers)
+                    .map(|layer| SurfaceSample {
+                        pos: BlockPos { x, y: 63 - layer * 3, z },
+                        block_light: 10 + (layer as u8 % 3),
+                        sky_light: 0,
+                    })
+                    .collect();
+                controller.submit_column(levels_core::structs::world::ColumnPos { x, z }, &samples);
+            }
+        }
+    }
+
+    fn walk(layers: i32, along_x: bool, steps: i32) -> WalkCost {
+        let rig = Rig::new();
+        let mut controller = LevelsController::new(LevelsConfig::default());
+        controller.frame(Rig::status(BlockPos { x: 0, y: 64, z: 0 }));
+        controller.signal(ManagerSignal::TogglePressed);
+        Rig::submit_columns(&mut controller, -24..=24, -24..=24, layers);
+        let first = rig.render(Plan::from_controller(&mut controller));
+        let standing = rig.render(Plan::from_controller(&mut controller));
+        let (mut meshes, mut quads) = (0, 0);
+        for step in 1..=steps {
+            let feet = if along_x { BlockPos { x: step, y: 64, z: 0 } } else { BlockPos { x: 0, y: 64, z: step } };
+            controller.frame(Rig::status(feet));
+            if along_x {
+                Rig::submit_columns(&mut controller, feet.x + 24..=feet.x + 24, -24..=24, layers);
+            } else {
+                Rig::submit_columns(&mut controller, -24..=24, feet.z + 24..=feet.z + 24, layers);
+            }
+            let stats = rig.render(Plan::from_controller(&mut controller));
+            meshes += stats.meshes_built;
+            quads += stats.quads_converted;
+        }
+        WalkCost {
+            meshes_per_step: meshes as f64 / steps as f64,
+            quads_per_step: quads as f64 / steps as f64,
+            total_quads: first.quads_converted,
+            drawn_standing: standing.meshes_drawn,
+        }
+    }
 }
 
 // owns what a `WorldDrawPlan` borrows
@@ -101,14 +189,6 @@ impl Plan {
     }
 }
 
-fn builds(calls: &[String]) -> Vec<&String> {
-    calls.iter().filter(|call| call.starts_with("build")).collect()
-}
-
-fn draws(calls: &[String]) -> Vec<&String> {
-    calls.iter().filter(|call| call.starts_with("draw")).collect()
-}
-
 #[test]
 fn a_list_over_the_loader_limit_is_split_into_meshes_of_at_most_the_limit() {
     let rig = Rig::new();
@@ -117,13 +197,13 @@ fn a_list_over_the_loader_limit_is_split_into_meshes_of_at_most_the_limit() {
 
     let calls = rig.calls();
     assert_eq!(
-        builds(&calls),
+        Rig::builds(&calls),
         [
             &format!("build quads={} style=alpha/1/0/2/full/white", MeshSlot::MAX_QUADS),
             "build quads=1809 style=alpha/1/0/2/full/white"
         ]
     );
-    assert_eq!(draws(&calls).len(), 2);
+    assert_eq!(Rig::draws(&calls).len(), 2);
     assert_eq!((stats.meshes_built, stats.meshes_drawn), (2, 2));
 }
 
@@ -133,11 +213,11 @@ fn a_plan_version_is_built_once_and_a_new_version_frees_the_old_meshes() {
     rig.render(Plan::labels(1, 4));
 
     rig.render(Plan::labels(1, 4));
-    assert!(builds(&rig.calls()).is_empty());
-    assert_eq!(draws(&rig.calls()).len(), 1);
+    assert!(Rig::builds(&rig.calls()).is_empty());
+    assert_eq!(Rig::draws(&rig.calls()).len(), 1);
 
     rig.render(Plan::labels(2, 8));
-    assert_eq!(builds(&rig.calls()).len(), 1);
+    assert_eq!(Rig::builds(&rig.calls()).len(), 1);
     assert_eq!(rig.canvas.frees.borrow().len(), 1);
     assert_eq!(rig.game.live_meshes(), 1);
 }
@@ -149,7 +229,7 @@ fn a_label_draw_lands_at_the_label_origin_unturned() {
     rig.render(Plan::labels(1, 4));
 
     let calls = rig.calls();
-    assert!(draws(&calls)[0].ends_with("10 63 -20 yaw=0"), "{calls:?}");
+    assert!(Rig::draws(&calls)[0].ends_with("10 63 -20 yaw=0"), "{calls:?}");
 }
 
 #[test]
@@ -191,9 +271,9 @@ fn shells_are_drawn_farthest_first_with_the_spin_negated() {
     rig.render(plan);
 
     let calls = rig.calls();
-    let order: Vec<&str> = draws(&calls).iter().map(|call| call.split(' ').nth(2).unwrap()).collect();
+    let order: Vec<&str> = Rig::draws(&calls).iter().map(|call| call.split(' ').nth(2).unwrap()).collect();
     assert_eq!(order, ["40.5", "20.5", "4.5"]);
-    let yaws: Vec<&str> = draws(&calls).iter().map(|call| call.rsplit("yaw=").next().unwrap()).collect();
+    let yaws: Vec<&str> = Rig::draws(&calls).iter().map(|call| call.rsplit("yaw=").next().unwrap()).collect();
     assert_eq!(yaws, ["-30", "10", "-30"]);
 }
 
@@ -210,7 +290,7 @@ fn a_shell_far_from_the_origin_keeps_its_sub_block_position() {
     rig.render(plan);
 
     let calls = rig.calls();
-    let draw = draws(&calls)[0];
+    let draw = Rig::draws(&calls)[0];
     assert!(draw.contains("-1000000.5 64.25 999999.75"), "{draw}");
 }
 
@@ -223,8 +303,8 @@ fn a_graphics_mode_switch_rebuilds_and_draws_in_the_same_frame() {
     let stats = rig.render(Plan::labels(1, 4));
 
     let calls = rig.calls();
-    assert_eq!(builds(&calls).len(), 1);
-    assert_eq!(draws(&calls).len(), 1);
+    assert_eq!(Rig::builds(&calls).len(), 1);
+    assert_eq!(Rig::draws(&calls).len(), 1);
     assert_eq!((stats.meshes_built, stats.meshes_drawn), (1, 1));
     assert_eq!(rig.game.live_meshes(), 1);
 }
@@ -238,7 +318,7 @@ fn after_a_world_leave_the_drawer_builds_again_without_freeing_stale_ids() {
 
     rig.render(Plan::labels(1, 4));
 
-    assert_eq!(builds(&rig.calls()).len(), 1);
+    assert_eq!(Rig::builds(&rig.calls()).len(), 1);
     assert!(rig.canvas.frees.borrow().is_empty());
 }
 
@@ -252,40 +332,10 @@ fn the_buffers_are_sized_once() {
     assert_eq!(rig.drawer.lock().unwrap().resident_bytes(), before);
 }
 
-fn status(feet: BlockPos) -> FrameStatus {
-    FrameStatus {
-        time_seconds: 0.0,
-        in_world: true,
-        has_player: true,
-        menu_open: false,
-        hud_hidden: false,
-        dimension: 0,
-        feet,
-        sky_darken: 0,
-        yaw: 0.0,
-    }
-}
-
-// a field of two-digit labels on the columns around the origin: more quads than three loader meshes hold
-fn field() -> LevelsController {
-    let mut controller = LevelsController::new(LevelsConfig::default());
-    controller.frame(status(BlockPos { x: 0, y: 64, z: 0 }));
-    controller.signal(ManagerSignal::TogglePressed);
-    for x in -20..20 {
-        for z in -20..20 {
-            controller.submit_column(
-                levels_core::structs::world::ColumnPos { x, z },
-                &[SurfaceSample { pos: BlockPos { x, y: 63, z }, block_light: 10, sky_light: 0 }],
-            );
-        }
-    }
-    controller
-}
-
 #[test]
 fn one_changed_label_builds_at_most_the_meshes_that_hold_it() {
     let rig = Rig::new();
-    let mut controller = field();
+    let mut controller = Rig::field();
     let first = rig.render(Plan::from_controller(&mut controller));
     assert!(first.meshes_built >= 3, "the field fills {} meshes", first.meshes_built);
 
@@ -303,7 +353,7 @@ fn one_changed_label_builds_at_most_the_meshes_that_hold_it() {
 #[test]
 fn an_unchanged_label_list_converts_no_quads_and_a_changed_one_converts_only_its_parts() {
     let rig = Rig::new();
-    let mut controller = field();
+    let mut controller = Rig::field();
     let first = rig.render(Plan::from_controller(&mut controller));
     let again = rig.render(Plan::from_controller(&mut controller));
 
@@ -320,7 +370,7 @@ fn an_unchanged_label_list_converts_no_quads_and_a_changed_one_converts_only_its
 #[test]
 fn a_cell_that_empties_is_freed_and_the_other_meshes_stay() {
     let rig = Rig::new();
-    let mut controller = field();
+    let mut controller = Rig::field();
     let first = rig.render(Plan::from_controller(&mut controller));
 
     // the whole cell of x -32..-17 and z -32..-17, and the ones beside it along z, go empty
@@ -337,27 +387,6 @@ fn a_cell_that_empties_is_freed_and_the_other_meshes_stay() {
     assert_eq!(rig.game.live_meshes() as u32, first.meshes_built - freed);
 }
 
-// The columns of a square of side 2 * 24 + 1 around `feet`, each with `layers` surfaces below the feet
-fn submit_columns(
-    controller: &mut LevelsController,
-    xs: std::ops::RangeInclusive<i32>,
-    zs: std::ops::RangeInclusive<i32>,
-    layers: i32,
-) {
-    for x in xs {
-        for z in zs.clone() {
-            let samples: Vec<SurfaceSample> = (0..layers)
-                .map(|layer| SurfaceSample {
-                    pos: BlockPos { x, y: 63 - layer * 3, z },
-                    block_light: 10 + (layer as u8 % 3),
-                    sky_light: 0,
-                })
-                .collect();
-            controller.submit_column(levels_core::structs::world::ColumnPos { x, z }, &samples);
-        }
-    }
-}
-
 // What one walk costs: the mean meshes built and quads converted per block step, the quads of a full list, and the
 // meshes drawn in a frame standing still
 struct WalkCost {
@@ -367,40 +396,11 @@ struct WalkCost {
     drawn_standing: u32,
 }
 
-fn walk(layers: i32, along_x: bool, steps: i32) -> WalkCost {
-    let rig = Rig::new();
-    let mut controller = LevelsController::new(LevelsConfig::default());
-    controller.frame(status(BlockPos { x: 0, y: 64, z: 0 }));
-    controller.signal(ManagerSignal::TogglePressed);
-    submit_columns(&mut controller, -24..=24, -24..=24, layers);
-    let first = rig.render(Plan::from_controller(&mut controller));
-    let standing = rig.render(Plan::from_controller(&mut controller));
-    let (mut meshes, mut quads) = (0, 0);
-    for step in 1..=steps {
-        let feet = if along_x { BlockPos { x: step, y: 64, z: 0 } } else { BlockPos { x: 0, y: 64, z: step } };
-        controller.frame(status(feet));
-        if along_x {
-            submit_columns(&mut controller, feet.x + 24..=feet.x + 24, -24..=24, layers);
-        } else {
-            submit_columns(&mut controller, -24..=24, feet.z + 24..=feet.z + 24, layers);
-        }
-        let stats = rig.render(Plan::from_controller(&mut controller));
-        meshes += stats.meshes_built;
-        quads += stats.quads_converted;
-    }
-    WalkCost {
-        meshes_per_step: meshes as f64 / steps as f64,
-        quads_per_step: quads as f64 / steps as f64,
-        total_quads: first.quads_converted,
-        drawn_standing: standing.meshes_drawn,
-    }
-}
-
 #[test]
 fn walking_block_steps_rebuild_only_the_cells_the_step_changes() {
     for (name, layers) in [("sparse", 1), ("dense", 3)] {
         for (axis, along_x) in [("+x", true), ("+z", false)] {
-            let cost = walk(layers, along_x, 64);
+            let cost = Rig::walk(layers, along_x, 64);
             // the full rebuild of a version before this task: every mesh of the list and every quad
             let old_meshes = cost.total_quads.div_ceil(MeshSlot::MAX_QUADS as u32);
             println!(

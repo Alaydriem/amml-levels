@@ -7,21 +7,25 @@ use levels_core::structs::world::BlockPos;
 use crate::support::levels_rig::LevelsRig;
 use crate::support::probe::Probe;
 
-fn game() -> FakeGame {
-    let game = FakeTable::game();
-    for area in [Area::CLIENT_READ, Area::CLIENT_HUD, Area::ACTOR_READ.at(3), Area::WORLD_SKY_DARKEN] {
-        game.offer_area(area);
-    }
-    game
-}
+struct Fixture;
 
-fn read(state: FakeClient) -> levels_core::structs::frame::FrameStatus {
-    Probe::read(&game(), state, |client| FrameStatusReader::read(client, 3.5))
+impl Fixture {
+    fn game() -> FakeGame {
+        let game = FakeTable::game();
+        for area in [Area::CLIENT_READ, Area::CLIENT_HUD, Area::ACTOR_READ.at(3), Area::WORLD_SKY_DARKEN] {
+            game.offer_area(area);
+        }
+        game
+    }
+
+    fn read(state: FakeClient) -> levels_core::structs::frame::FrameStatus {
+        Probe::read(&Fixture::game(), state, |client| FrameStatusReader::read(client, 3.5))
+    }
 }
 
 #[test]
 fn outside_a_world_only_the_time_is_set() {
-    let status = read(FakeClient::default());
+    let status = Fixture::read(FakeClient::default());
 
     assert_eq!(status.time_seconds, 3.5);
     assert!(!status.in_world && !status.has_player);
@@ -29,7 +33,7 @@ fn outside_a_world_only_the_time_is_set() {
 
 #[test]
 fn a_world_with_no_player_is_in_world_only() {
-    let status = read(FakeClient { world_active: true, ..FakeClient::default() });
+    let status = Fixture::read(FakeClient { world_active: true, ..FakeClient::default() });
 
     assert!(status.in_world);
     assert!(!status.has_player);
@@ -37,7 +41,7 @@ fn a_world_with_no_player_is_in_world_only() {
 
 #[test]
 fn the_status_carries_the_pose_the_dimension_and_the_screens() {
-    let status = read(FakeClient {
+    let status = Fixture::read(FakeClient {
         showing_menu: true,
         hide_hud: true,
         rotation: Some(Rotation { yaw: 90.0, pitch: 10.0 }),
@@ -62,7 +66,7 @@ fn the_feet_block_is_the_block_of_the_feet_not_of_the_eyes() {
 
 #[test]
 fn a_player_without_a_readable_position_counts_as_no_player() {
-    let status = read(FakeClient { position: None, ..LevelsRig::in_world() });
+    let status = Fixture::read(FakeClient { position: None, ..LevelsRig::in_world() });
 
     assert!(status.in_world);
     assert!(!status.has_player);
@@ -70,8 +74,9 @@ fn a_player_without_a_readable_position_counts_as_no_player() {
 
 #[test]
 fn the_check_says_whether_the_dimension_of_the_player_was_readable() {
-    let checked =
-        |state: FakeClient| Probe::read(&game(), state, |client| FrameStatusReader::read_checked(client, 1.0).1);
+    let checked = |state: FakeClient| {
+        Probe::read(&Fixture::game(), state, |client| FrameStatusReader::read_checked(client, 1.0).1)
+    };
 
     assert_eq!(checked(LevelsRig::in_world()), Some(true));
     assert_eq!(checked(FakeClient { dimension: None, ..LevelsRig::in_world() }), Some(false));

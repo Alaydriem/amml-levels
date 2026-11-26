@@ -3,14 +3,18 @@ use std::collections::HashMap;
 use alaydriem_levels::LevelsMod;
 use amm_client::test_support::FakeTable;
 use amm_core::structs::event::{KeybindPhase, ModEvent};
-use amml_api::amml_abi::{ClientTick, WorldRendered};
-use amml_api::testing::{FakeCanvas, FakeChunk, FakeClient, FakeGame, FakeWorld};
-use amml_api::{Area, BlockPos, ChunkLoad, Rotation, SurfaceSample, Vec3};
+use amml_api::amml_abi::{ClientTick, ScreenRender, WorldRendered};
+use amml_api::testing::{FakeCanvas, FakeChunk, FakeClient, FakeGame, FakeScreen, FakeWorld};
+use amml_api::{
+    Aabb, ActorBox, ActorTypeId, Area, BlockPos, ChunkLoad, Rotation, Screen, ScreenId, Size, SurfaceSample, Vec3,
+    ViewId,
+};
 
 pub const TOGGLE: u16 = 0;
 pub const BORDERS: u16 = 1;
 pub const SPHERE_DROP: u16 = 2;
 pub const SPHERE_CLEAR: u16 = 4;
+pub const INFO: u16 = 5;
 
 // the levels mod enabled on a fake game that serves every row of its `USES`. The player stands at (10.5, 64, -19.5) in
 // the overworld with a lit-by-block surface under the feet
@@ -20,6 +24,29 @@ pub struct LevelsRig {
 
 impl LevelsRig {
     pub const FEET: Vec3 = Vec3 { x: 10.5, y: 64.0, z: -19.5 };
+    // a zombie: kind 0x20 with the mob and monster family bits
+    pub const ZOMBIE: ActorTypeId = ActorTypeId(0x0B20);
+
+    // every area of the `USES` of the mod, the optional `"info"` rows included
+    pub const AREAS: [Area; 17] = [
+        Area::INPUT_LEASE,
+        Area::CLIENT_READ,
+        Area::CLIENT_HUD,
+        Area::ACTOR_READ.at(3),
+        Area::WORLD_SKY_DARKEN,
+        Area::WORLD_SCAN_SURFACES,
+        Area::RENDER_WORLD_CANVAS.at(2),
+        Area::UI_SCREEN,
+        Area::UI_DRAW,
+        Area::UI_TEXT,
+        Area::CLIENT_TOP_SCREEN,
+        Area::WORLD_CHUNK_READ,
+        Area::WORLD_BIOMES.at(2),
+        Area::WORLD_BLOCKS,
+        Area::PLAYER_HIT_RESULT,
+        Area::CLIENT_WORLD_INFO,
+        Area::WORLD_ACTORS_IN.at(2),
+    ];
 
     // the mod manager is provided; `config` is the text of its config.hcl
     pub fn with_manager(config: &str) -> Self {
@@ -35,15 +62,8 @@ impl LevelsRig {
         let game = FakeTable::game();
         game.offer::<ClientTick>();
         game.offer::<WorldRendered>();
-        for area in [
-            Area::INPUT_LEASE,
-            Area::CLIENT_READ,
-            Area::CLIENT_HUD,
-            Area::ACTOR_READ.at(3),
-            Area::WORLD_SKY_DARKEN,
-            Area::WORLD_SCAN_SURFACES,
-            Area::RENDER_WORLD_CANVAS.at(2),
-        ] {
+        game.offer::<ScreenRender>();
+        for area in Self::AREAS {
             game.offer_area(area);
         }
         if manager {
@@ -81,6 +101,22 @@ impl LevelsRig {
         FakeWorld { chunks, surfaces: HashMap::from([((10, -20), vec![under_feet])]), ..FakeWorld::default() }
     }
 
+    // the world of `world` with three zombies near the feet
+    pub fn zombie_world() -> FakeWorld {
+        FakeWorld {
+            actors: vec![Self::zombie(12.0, -18.0), Self::zombie(8.0, -22.0), Self::zombie(14.0, -25.0)],
+            actor_types: vec![Self::ZOMBIE; 3],
+            ..Self::world()
+        }
+    }
+
+    fn zombie(x: f32, z: f32) -> ActorBox {
+        ActorBox {
+            aabb: Aabb { min: Vec3 { x, y: 64.0, z }, max: Vec3 { x: x + 0.6, y: 65.9, z: z + 0.6 } },
+            is_local_player: false,
+        }
+    }
+
     pub fn set_client(&self, client: FakeClient) {
         self.game.set_client(client);
     }
@@ -92,6 +128,12 @@ impl LevelsRig {
     // a key of the descriptor pressed, then one tick
     pub fn press(&self, action: u16) {
         FakeTable::push_event(ModEvent::Keybind { action, phase: KeybindPhase::Pressed });
+        self.tick();
+    }
+
+    // a key of the descriptor released, then one tick
+    pub fn release(&self, action: u16) {
+        FakeTable::push_event(ModEvent::Keybind { action, phase: KeybindPhase::Released });
         self.tick();
     }
 
@@ -114,6 +156,19 @@ impl LevelsRig {
         let canvas = FakeCanvas { camera_position: Some(Self::FEET), ..FakeCanvas::default() };
         self.render(&canvas);
         canvas
+    }
+
+    // `in_world` with the HUD on top and no menu open
+    pub fn on_hud() -> FakeClient {
+        FakeClient { top_screen: Screen::Hud, ..Self::in_world() }
+    }
+
+    // one `ScreenRender` view of the size the game drew in the probe run; the ui draws it made
+    pub fn view(&self) -> Vec<String> {
+        let screen = FakeScreen { size: Some(Size { width: 719, height: 426 }), ..FakeScreen::default() };
+        let before = self.game.draws().len();
+        self.game.raise_screen_render(ScreenId(9), ViewId(10), &screen);
+        self.game.draws().split_off(before)
     }
 
     // the lines the mod logged that start with `prefix`

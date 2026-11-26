@@ -65,7 +65,11 @@ impl WorldMarkers {
             ManagerSignal::LeaseLost | ManagerSignal::LeaseSuspended => self.is_lease_hidden = true,
             ManagerSignal::LeaseRestored => self.is_lease_hidden = false,
             ManagerSignal::Disabled => self.clear_all(),
-            ManagerSignal::TogglePressed => {}
+            ManagerSignal::TogglePressed
+            | ManagerSignal::InfoPressed
+            | ManagerSignal::InfoReleased
+            | ManagerSignal::HudLeaseLost
+            | ManagerSignal::HudLeaseRestored => {}
         }
     }
 

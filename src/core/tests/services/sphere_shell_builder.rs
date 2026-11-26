@@ -1,8 +1,12 @@
 use levels_core::services::SphereShellBuilder;
 use levels_core::structs::draw::ColorQuad;
 
-fn length(c: [f32; 3]) -> f32 {
-    (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt()
+struct Fixture;
+
+impl Fixture {
+    fn length(c: [f32; 3]) -> f32 {
+        (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt()
+    }
 }
 
 #[test]
@@ -15,7 +19,7 @@ fn fill_is_on_the_radius_and_lines_sit_the_lift_outside_it() {
         for quad in &out {
             let target = if quad.rgba[3] == fill_alpha { radius } else { radius + SphereShellBuilder::LINE_LIFT };
             for c in quad.corners {
-                let len = length(c);
+                let len = Fixture::length(c);
                 assert!((len - target).abs() <= 0.01, "len {len} target {target}");
             }
         }

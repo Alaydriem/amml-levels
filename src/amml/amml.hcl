@@ -78,6 +78,52 @@ uses {
       required = true
     }
   }
+  feature "info" {
+    event "ui.screen_render" {
+      version  = 1
+      required = false
+    }
+    area "ui.screen" {
+      version  = 1
+      required = false
+    }
+    area "ui.draw" {
+      version  = 1
+      required = false
+    }
+    area "ui.text" {
+      version  = 1
+      required = false
+    }
+    area "client.top_screen" {
+      version  = 2
+      required = false
+    }
+    area "world.chunk_read" {
+      version  = 1
+      required = false
+    }
+    area "world.biomes" {
+      version  = 2
+      required = false
+    }
+    area "world.blocks" {
+      version  = 1
+      required = false
+    }
+    area "player.hit_result" {
+      version  = 1
+      required = false
+    }
+    area "client.world_info" {
+      version  = 1
+      required = false
+    }
+    area "world.actors_in" {
+      version  = 2
+      required = false
+    }
+  }
 }
 
 listing {

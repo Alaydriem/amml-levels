@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use crate::config::{BordersConfig, LabelConfig, LightConfig, ScanConfig, SpheresConfig};
+use crate::config::{BordersConfig, InfoConfig, LabelConfig, LightConfig, ScanConfig, SpheresConfig};
 use crate::services::LabelMeshBuilder;
 use crate::structs::draw::ColorQuad;
 
@@ -14,6 +14,7 @@ pub struct LevelsConfig {
     pub label: LabelConfig,
     pub borders: BordersConfig,
     pub spheres: SpheresConfig,
+    pub info: InfoConfig,
     pub telemetry: bool,
     // resident memory the overlay may use; telemetry reports use against it
     pub memory_budget_mb: u32,
@@ -27,6 +28,7 @@ impl Default for LevelsConfig {
             label: LabelConfig::default(),
             borders: BordersConfig::default(),
             spheres: SpheresConfig::default(),
+            info: InfoConfig::default(),
             telemetry: false,
             memory_budget_mb: DEFAULT_MEMORY_BUDGET_MB,
         }
@@ -49,6 +51,7 @@ impl LevelsConfig {
             label: self.label.sanitized(),
             borders: self.borders.sanitized(),
             spheres: self.spheres.sanitized(),
+            info: self.info.sanitized(),
             telemetry: self.telemetry,
             memory_budget_mb,
         }

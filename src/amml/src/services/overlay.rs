@@ -1,5 +1,5 @@
 use amm_client::link::LinkState;
-use levels_core::services::LevelsController;
+use levels_core::services::{InfoPanel, LevelsController};
 use levels_core::structs::frame::{ColumnRequest, FrameStatus};
 use levels_core::structs::light::SurfaceSample;
 use levels_core::structs::marker::WorldDrawPlan;
@@ -85,5 +85,9 @@ impl Overlay {
 
     pub fn controller(&self) -> &LevelsController {
         &self.controller
+    }
+
+    pub fn info_mut(&mut self) -> &mut InfoPanel {
+        self.controller.info_mut()
     }
 }

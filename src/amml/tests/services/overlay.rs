@@ -79,18 +79,18 @@ impl Session {
     fn under_feet(block_light: u8, sky_light: u8) -> SurfaceSample {
         SurfaceSample { pos: BlockPos { x: 10, y: 63, z: -20 }, block_light, sky_light }
     }
-}
 
-fn action(index: u16) -> ModEvent {
-    ModEvent::Keybind { action: index, phase: KeybindPhase::Pressed }
-}
+    fn action(index: u16) -> ModEvent {
+        ModEvent::Keybind { action: index, phase: KeybindPhase::Pressed }
+    }
 
-fn acquired() -> Vec<Capability> {
-    FakeTable::with(|state| state.acquired.clone())
-}
+    fn acquired() -> Vec<Capability> {
+        FakeTable::with(|state| state.acquired.clone())
+    }
 
-fn released() -> Vec<Capability> {
-    FakeTable::with(|state| state.released.clone())
+    fn released() -> Vec<Capability> {
+        FakeTable::with(|state| state.released.clone())
+    }
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn toggle_keybind_turns_on_and_acquires_world_draw() {
 
     session.turn_on();
 
-    assert_eq!(acquired(), [Capability::WorldDraw]);
+    assert_eq!(Session::acquired(), [Capability::WorldDraw]);
     assert!(session.columns_at(1) > 0);
     assert!(session.game.logs().contains(&"info levels: world draw lease held".to_string()));
 }
@@ -111,7 +111,7 @@ fn toggle_without_world_takes_no_lease() {
 
     session.frame(Session::out_of_world(0.0));
 
-    assert!(acquired().is_empty());
+    assert!(Session::acquired().is_empty());
     assert_eq!(session.columns_at(1), 0);
 }
 
@@ -123,7 +123,7 @@ fn toggle_with_menu_open_takes_no_lease() {
 
     session.frame(FrameStatus { menu_open: true, ..Session::in_world(1.0 / 60.0) });
 
-    assert!(acquired().is_empty());
+    assert!(Session::acquired().is_empty());
 }
 
 #[test]
@@ -135,7 +135,7 @@ fn denied_world_draw_keeps_overlay_off() {
 
     assert_eq!(session.columns_at(1), 0);
     assert_eq!(session.columns_at(2), 0);
-    assert_eq!(acquired(), [Capability::WorldDraw]);
+    assert_eq!(Session::acquired(), [Capability::WorldDraw]);
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn revoked_world_draw_hides_the_overlay() {
     FakeTable::push_event(ModEvent::Revoked { capability: Capability::WorldDraw, by: OTHER_MOD });
 
     assert_eq!(session.columns_at(1), 0);
-    assert!(released().is_empty());
+    assert!(Session::released().is_empty());
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn suspended_world_draw_hides_the_overlay_and_keeps_the_lease() {
 
     assert_eq!(session.columns_at(1), 0);
     assert!(session.overlay.is_on());
-    assert!(released().is_empty());
+    assert!(Session::released().is_empty());
 }
 
 #[test]
@@ -169,7 +169,7 @@ fn suspended_lease_is_given_back_once_nothing_is_wanted() {
 
     session.columns_at(2);
 
-    assert_eq!(released(), [Capability::WorldDraw]);
+    assert_eq!(Session::released(), [Capability::WorldDraw]);
 }
 
 #[test]
@@ -177,8 +177,8 @@ fn suspend_then_resume_keeps_everything() {
     let mut session = Session::new();
     session.turn_on();
     session.frame(Session::in_world(1.0 / 60.0));
-    FakeTable::push_event(action(1));
-    FakeTable::push_event(action(2));
+    FakeTable::push_event(Session::action(1));
+    FakeTable::push_event(Session::action(2));
     session.columns_at(2);
     let before = session.instances();
     assert_eq!(before, 1);
@@ -191,8 +191,8 @@ fn suspend_then_resume_keeps_everything() {
     assert!(session.columns_at(4) > 0);
     assert_eq!(session.instances(), before);
     assert!(session.border_quads() > 0);
-    assert_eq!(acquired(), [Capability::WorldDraw]);
-    assert!(released().is_empty());
+    assert_eq!(Session::acquired(), [Capability::WorldDraw]);
+    assert!(Session::released().is_empty());
 }
 
 #[test]
@@ -200,22 +200,22 @@ fn new_keybinds_reach_core() {
     let mut session = Session::new();
     session.frame(Session::in_world(0.0));
 
-    FakeTable::push_event(action(1));
+    FakeTable::push_event(Session::action(1));
     session.columns_at(1);
     assert!(session.border_quads() > 0);
 
-    FakeTable::push_event(action(2));
+    FakeTable::push_event(Session::action(2));
     session.columns_at(2);
     assert_eq!(session.instances(), 1);
 
-    FakeTable::push_event(action(3));
+    FakeTable::push_event(Session::action(3));
     session.columns_at(3);
     assert_eq!(session.instances(), 0);
 
-    FakeTable::push_event(action(2));
-    FakeTable::push_event(action(2));
+    FakeTable::push_event(Session::action(2));
+    FakeTable::push_event(Session::action(2));
     session.columns_at(4);
-    FakeTable::push_event(action(4));
+    FakeTable::push_event(Session::action(4));
     session.columns_at(5);
     assert_eq!(session.instances(), 0);
 }
@@ -225,12 +225,12 @@ fn the_sphere_keys_are_logged() {
     let mut session = Session::new();
     session.frame(Session::in_world(0.0));
 
-    FakeTable::push_event(action(2));
-    FakeTable::push_event(action(2));
+    FakeTable::push_event(Session::action(2));
+    FakeTable::push_event(Session::action(2));
     session.columns_at(1);
-    FakeTable::push_event(action(3));
+    FakeTable::push_event(Session::action(3));
     session.columns_at(2);
-    FakeTable::push_event(action(4));
+    FakeTable::push_event(Session::action(4));
     session.columns_at(3);
 
     let logs = session.game.logs();
@@ -251,7 +251,7 @@ fn revoke_waits_for_capability_available() {
     let mut session = Session::new();
     session.turn_on();
     session.frame(Session::in_world(1.0 / 60.0));
-    FakeTable::push_event(action(2));
+    FakeTable::push_event(Session::action(2));
     session.columns_at(2);
     FakeTable::push_event(ModEvent::Revoked { capability: Capability::WorldDraw, by: OTHER_MOD });
     session.columns_at(3);
@@ -260,12 +260,12 @@ fn revoke_waits_for_capability_available() {
     for frame in 4..14 {
         session.columns_at(frame);
     }
-    assert_eq!(acquired().len(), 1);
+    assert_eq!(Session::acquired().len(), 1);
 
     FakeTable::push_event(ModEvent::CapabilityAvailable(Capability::WorldDraw));
     session.columns_at(14);
 
-    assert_eq!(acquired().len(), 2);
+    assert_eq!(Session::acquired().len(), 2);
     assert_eq!(session.instances(), 1);
 }
 
@@ -276,7 +276,7 @@ fn disabled_turns_overlay_off() {
     FakeTable::push_event(ModEvent::Disabled);
 
     assert_eq!(session.columns_at(1), 0);
-    assert!(released().is_empty());
+    assert!(Session::released().is_empty());
 }
 
 #[test]
@@ -287,7 +287,7 @@ fn a_manager_that_is_gone_turns_the_overlay_off() {
 
     assert_eq!(session.columns_at(1), 0);
     assert!(!session.overlay.is_on());
-    assert!(released().is_empty());
+    assert!(Session::released().is_empty());
 }
 
 #[test]
@@ -300,7 +300,7 @@ fn lost_lease_keeps_the_overlay_on_but_hidden_and_does_not_retry() {
     assert_eq!(session.columns_at(2), 0);
     assert_eq!(session.columns_at(3), 0);
     assert!(session.overlay.is_on());
-    assert_eq!(acquired(), [Capability::WorldDraw]);
+    assert_eq!(Session::acquired(), [Capability::WorldDraw]);
 }
 
 #[test]
@@ -314,7 +314,7 @@ fn a_lost_lease_is_asked_for_again_after_a_world_leave() {
 
     session.turn_on();
 
-    assert_eq!(acquired(), [Capability::WorldDraw, Capability::WorldDraw]);
+    assert_eq!(Session::acquired(), [Capability::WorldDraw, Capability::WorldDraw]);
     assert!(session.columns_at(3) > 0);
 }
 
@@ -325,7 +325,7 @@ fn leaving_world_releases_world_draw() {
 
     session.frame(Session::out_of_world(1.0 / 60.0));
 
-    assert_eq!(released(), [Capability::WorldDraw]);
+    assert_eq!(Session::released(), [Capability::WorldDraw]);
 }
 
 #[test]
@@ -336,8 +336,8 @@ fn repeat_and_release_phases_do_not_toggle() {
     FakeTable::push_event(ModEvent::Keybind { action: 0, phase: KeybindPhase::Released });
 
     assert!(session.columns_at(1) > 0);
-    assert_eq!(acquired(), [Capability::WorldDraw]);
-    assert!(released().is_empty());
+    assert_eq!(Session::acquired(), [Capability::WorldDraw]);
+    assert!(Session::released().is_empty());
 }
 
 #[test]

@@ -17,6 +17,14 @@ pub enum ManagerSignal {
     LeaseSuspended,
     // a suspended WorldDraw lease is back
     LeaseRestored,
+    // the info panel keybind went down
+    InfoPressed,
+    // the info panel keybind came up
+    InfoReleased,
+    // the Hud lease was denied, revoked or suspended
+    HudLeaseLost,
+    // the Hud lease is back
+    HudLeaseRestored,
     // the player disabled the mod in the manager
     Disabled,
 }

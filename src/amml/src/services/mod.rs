@@ -1,4 +1,7 @@
+pub mod biome_names;
 pub mod frame_status_reader;
+pub mod info_drawer;
+pub mod info_reader;
 pub mod levels_listeners;
 pub mod levels_log;
 pub mod levels_runtime;
@@ -10,7 +13,10 @@ pub mod scan_driver;
 pub mod surface_sampler;
 pub mod world_drawer;
 
+pub use biome_names::BiomeNames;
 pub use frame_status_reader::FrameStatusReader;
+pub use info_drawer::InfoDrawer;
+pub use info_reader::InfoReader;
 pub use levels_listeners::LevelsListeners;
 pub use levels_log::LevelsLog;
 pub use levels_runtime::LevelsRuntime;

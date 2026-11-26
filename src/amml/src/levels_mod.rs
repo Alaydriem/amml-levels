@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use amml_api::amml_abi::{
     ClientTick, InjectedInputReleased, InputLeaseLost, InputLeaseResumed, InputLeaseSuspended, ModsLoaded,
-    ProviderGone, ProviderReady, ScreenshotTaken, ScreenshotWritten, WorldRendered,
+    ProviderGone, ProviderReady, ScreenRender, ScreenshotTaken, ScreenshotWritten, WorldRendered,
 };
 use amml_api::{AmmlMod, ApiError, Area, Ctx, DisableCtx, Uses};
 
@@ -39,6 +39,19 @@ impl AmmlMod for LevelsMod {
             required area Area::WORLD_SCAN_SURFACES;
             required area Area::RENDER_WORLD_CANVAS.at(2);
         }
+        feature "info" {
+            optional ScreenRender;
+            optional area Area::UI_SCREEN;
+            optional area Area::UI_DRAW;
+            optional area Area::UI_TEXT;
+            optional area Area::CLIENT_TOP_SCREEN;
+            optional area Area::WORLD_CHUNK_READ;
+            optional area Area::WORLD_BIOMES.at(2);
+            optional area Area::WORLD_BLOCKS;
+            optional area Area::PLAYER_HIT_RESULT;
+            optional area Area::CLIENT_WORLD_INFO;
+            optional area Area::WORLD_ACTORS_IN.at(2);
+        }
     };
 
     fn enable(ctx: &Ctx) -> Result<(), ApiError> {
@@ -47,7 +60,7 @@ impl AmmlMod for LevelsMod {
             log.error("levels: off", &[("error", &error.to_string())]);
             ApiError::Refused
         })?;
-        let runtime = Arc::new(LevelsRuntime::new(LevelsLog::new(log)));
+        let runtime = Arc::new(LevelsRuntime::new(LevelsLog::new(log), *ctx));
         runtime.attach(session);
         let listeners = LevelsListeners::start(ctx, runtime).inspect_err(|error| {
             log.error("levels: off", &[("error", &error.to_string())]);

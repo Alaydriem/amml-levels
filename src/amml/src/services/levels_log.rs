@@ -1,4 +1,5 @@
 use amml_api::Logger;
+use levels_core::structs::info::InfoMode;
 
 use crate::types::WorldSlot;
 
@@ -84,5 +85,24 @@ impl LevelsLog {
 
     pub fn spheres_cleared(&self) {
         self.log.info("levels: spheres cleared", &[]);
+    }
+
+    pub fn info_shown(&self, mode: InfoMode) {
+        let mode = match mode {
+            InfoMode::Toggle => "toggle",
+            InfoMode::Hold => "hold",
+        };
+        self.log.info("levels: info shown", &[("mode", mode)]);
+    }
+
+    pub fn info_hidden(&self) {
+        self.log.info("levels: info hidden", &[]);
+    }
+
+    pub fn info_entities(&self, total: u16, hostile: u16, passive: u16) {
+        self.log.info(
+            "levels: info entities",
+            &[("total", &total.to_string()), ("hostile", &hostile.to_string()), ("passive", &passive.to_string())],
+        );
     }
 }

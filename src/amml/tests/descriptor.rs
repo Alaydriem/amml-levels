@@ -8,20 +8,25 @@ const DESCRIPTOR: &str = include_str!("../descriptor.hcl");
 const KEY_G: u32 = 0x47;
 const KEY_J: u32 = 0x4A;
 const KEY_L: u32 = 0x4C;
+const KEY_T: u32 = 0x54;
 
-fn checker() -> DescriptorChecker {
-    DescriptorChecker::new(128, 256)
+struct Fixture;
+
+impl Fixture {
+    fn checker() -> DescriptorChecker {
+        DescriptorChecker::new(128, 256)
+    }
 }
 
 #[test]
 fn descriptor_passes_the_manager_checker() {
-    let descriptor = checker().parse(DESCRIPTOR).expect("the descriptor parses and checks");
+    let descriptor = Fixture::checker().parse(DESCRIPTOR).expect("the descriptor parses and checks");
 
     assert_eq!(descriptor.namespace, "alaydriem");
     assert_eq!(descriptor.name, "levels");
     assert_eq!(descriptor.id(), "@alaydriem/levels");
     let claims: Vec<_> = descriptor.claims.iter().map(|claim| (claim.capability, claim.mode)).collect();
-    assert_eq!(claims, [(Capability::WorldDraw, ClaimMode::Shared)]);
+    assert_eq!(claims, [(Capability::WorldDraw, ClaimMode::Shared), (Capability::Hud, ClaimMode::Shared)]);
     let keybinds: Vec<_> = descriptor
         .keybinds
         .iter()
@@ -34,13 +39,14 @@ fn descriptor_passes_the_manager_checker() {
         ("sphere_drop", Capability::WorldDraw, KeyScope::Global, chord(KEY_J, false, false)),
         ("sphere_remove", Capability::WorldDraw, KeyScope::Global, chord(KEY_J, true, false)),
         ("sphere_clear", Capability::WorldDraw, KeyScope::Global, chord(KEY_J, false, true)),
+        ("info", Capability::Hud, KeyScope::Global, chord(KEY_T, false, false)),
     ];
     assert_eq!(keybinds, expected);
 }
 
 #[test]
 fn schema_defaults_match_core_defaults() {
-    let descriptor = checker().parse(DESCRIPTOR).expect("the descriptor parses and checks");
+    let descriptor = Fixture::checker().parse(DESCRIPTOR).expect("the descriptor parses and checks");
 
     let checked = SchemaChecker::check(&descriptor.settings, HclDocument::empty());
     let config: LevelsConfig = hcl::from_str(&checked.document.text()).expect("the default document parses");

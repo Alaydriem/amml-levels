@@ -1,6 +1,6 @@
 use crate::config::LevelsConfig;
 use crate::services::{
-    DrawListBuilder, LabelGrid, LabelMeshBuilder, LightClassifier, ScanPlanner, Telemetry, WorldMarkers,
+    DrawListBuilder, InfoPanel, LabelGrid, LabelMeshBuilder, LightClassifier, ScanPlanner, Telemetry, WorldMarkers,
 };
 use crate::structs::draw::LabelStamp;
 use crate::structs::frame::{ColumnRequest, FrameStatus};
@@ -29,10 +29,12 @@ pub struct LevelsController {
     builder: DrawListBuilder,
     mesh: LabelMeshBuilder,
     markers: WorldMarkers,
+    info: InfoPanel,
     is_lease_hidden: bool,
     telemetry: Telemetry,
     // the buffers core allocates once in new()
     core_bytes: u64,
+    budget_bytes: u64,
     last_report: Option<TelemetryReport>,
     // 0 when the labels are not drawn this frame
     label_version: u64,
@@ -49,6 +51,7 @@ impl LevelsController {
     pub fn new(config: LevelsConfig) -> Self {
         let config = config.sanitized();
         let planner = ScanPlanner::new(&config.scan);
+        let info = InfoPanel::new(&config.info, config.light, &config.label);
         let grid = LabelGrid::new(config.scan.radius);
         let builder = DrawListBuilder::new(&config.scan, config.label, LightClassifier::new(config.light));
         let mesh = LabelMeshBuilder::new(builder.max_labels());
@@ -57,8 +60,10 @@ impl LevelsController {
             + grid.resident_bytes()
             + builder.resident_bytes()
             + mesh.resident_bytes()
-            + markers.resident_bytes();
-        let mut telemetry = Telemetry::new(config.telemetry, config.memory_budget_mb as u64 * BYTES_PER_MB);
+            + markers.resident_bytes()
+            + info.resident_bytes();
+        let budget_bytes = config.memory_budget_mb as u64 * BYTES_PER_MB;
+        let mut telemetry = Telemetry::new(config.telemetry, budget_bytes);
         telemetry.memory(core_bytes);
         Self {
             max_columns_per_frame: config.scan.max_columns_per_frame as usize,
@@ -69,9 +74,11 @@ impl LevelsController {
             builder,
             mesh,
             markers,
+            info,
             is_lease_hidden: false,
             telemetry,
             core_bytes,
+            budget_bytes,
             last_report: None,
             label_version: 0,
             label_builds: 0,
@@ -93,10 +100,19 @@ impl LevelsController {
             ManagerSignal::LeaseRestored => self.is_lease_hidden = false,
             ManagerSignal::Disabled => {
                 self.is_lease_hidden = false;
+                self.info.signal(signal);
                 if self.is_on {
                     curia::info!("overlay stopped by the mod manager", { reason: format!("{signal:?}") });
                     self.set_on(false);
                 }
+            }
+            ManagerSignal::InfoPressed => {
+                if self.is_in_world() {
+                    self.info.signal(signal);
+                }
+            }
+            ManagerSignal::InfoReleased | ManagerSignal::HudLeaseLost | ManagerSignal::HudLeaseRestored => {
+                self.info.signal(signal);
             }
             ManagerSignal::BordersPressed
             | ManagerSignal::SphereDropPressed
@@ -144,6 +160,14 @@ impl LevelsController {
         Some(plan)
     }
 
+    pub fn info(&self) -> &InfoPanel {
+        &self.info
+    }
+
+    pub fn info_mut(&mut self) -> &mut InfoPanel {
+        &mut self.info
+    }
+
     pub fn is_lease_hidden(&self) -> bool {
         self.is_lease_hidden
     }
@@ -160,6 +184,7 @@ impl LevelsController {
     // their values until the next start
     pub fn apply_config(&mut self, config: LevelsConfig) {
         let config = config.sanitized();
+        self.info.apply_config(&config.info, config.light, &config.label);
         self.builder.restyle(config.label, LightClassifier::new(config.light));
         self.style_revision += 1;
         self.telemetry.set_enabled(config.telemetry);
@@ -208,6 +233,7 @@ impl LevelsController {
     pub fn timing(&mut self, sample_us: f32, draw_us: f32, outside_bytes: u64) {
         self.telemetry.timing(sample_us, draw_us);
         self.telemetry.memory(self.core_bytes + outside_bytes);
+        self.info.levels_memory(self.core_bytes + outside_bytes, self.budget_bytes);
     }
 
     pub fn last_report(&self) -> Option<TelemetryReport> {
@@ -291,6 +317,9 @@ impl LevelsController {
             return;
         };
         if !status.in_world {
+            if last.in_world {
+                self.info.leave_world();
+            }
             self.is_lease_hidden = false;
             if self.is_on {
                 curia::info!("left the world, overlay off");
