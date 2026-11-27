@@ -18,13 +18,10 @@ curia = "=0.2.2"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 hcl-rs = "=0.19.8"
 levels-core = { path = "src/core" }
-amm-abi = { git = "https://github.com/Alaydriem/amml-modmanager.git", tag = "26.63.4" }
-amm-client = { git = "https://github.com/Alaydriem/amml-modmanager.git", tag = "26.63.4", default-features = false }
-amm-core = { git = "https://github.com/Alaydriem/amml-modmanager.git", tag = "26.63.4" }
-amml-sdk = { git = "https://github.com/Alaydriem/amml.git", tag = "26.63.4" }
-amml-game = { git = "https://github.com/Alaydriem/amml.git", tag = "26.63.4" }
-amml-msvc = { git = "https://github.com/Alaydriem/amml.git", tag = "26.63.4" }
-thiserror = "2.0.21"
+# AMML and the mod manager at release tag 26.63.8
+amm-client = { git = "https://github.com/Alaydriem/amml-modmanager.git", tag = "26.63.8", default-features = false }
+amm-core = { git = "https://github.com/Alaydriem/amml-modmanager.git", tag = "26.63.8" }
+amml-api = { git = "https://github.com/Alaydriem/amml.git", tag = "26.63.8" }
 
 [workspace.lints.clippy]
 unwrap_used = "deny"

@@ -1,4 +1,4 @@
-use levels_core::config::{LevelsConfig, MAX_COLUMN_SURFACES, MAX_RADIUS};
+use levels_core::config::{LevelsConfig, MAX_COLUMN_SURFACES, MAX_ENTITY_RADIUS, MAX_RADIUS};
 use levels_core::services::LabelMeshBuilder;
 use levels_core::structs::draw::ColorQuad;
 
@@ -95,4 +95,31 @@ fn sanitized_fixes_bad_ranges() {
     assert_eq!(high.scan.radius, MAX_RADIUS);
     assert_eq!(high.light.red_max, 15);
     assert_eq!(high.light.yellow_max, 15);
+}
+
+#[test]
+fn info_clamps() {
+    let mut bad = LevelsConfig::default();
+    bad.info.refresh_seconds = 0.0;
+    bad.info.entity_radius = 500.0;
+    bad.info.entity_scan_seconds = f32::NAN;
+    bad.info.background_alpha = 3.0;
+    bad.info.top_offset = -5.0;
+    let bad = bad.sanitized();
+
+    assert_eq!(bad.info.refresh_seconds, 0.05);
+    assert_eq!(bad.info.entity_radius, MAX_ENTITY_RADIUS);
+    assert_eq!(bad.info.entity_scan_seconds, LevelsConfig::default().info.entity_scan_seconds);
+    assert_eq!(bad.info.background_alpha, 1.0);
+    assert_eq!(bad.info.top_offset, 0.0);
+}
+
+#[test]
+fn info_top_offset_clamps() {
+    let mut config = LevelsConfig::default();
+    config.info.top_offset = 999.0;
+    assert_eq!(config.sanitized().info.top_offset, 200.0);
+    let mut config = LevelsConfig::default();
+    config.info.top_offset = f32::NAN;
+    assert_eq!(config.sanitized().info.top_offset, LevelsConfig::default().info.top_offset);
 }

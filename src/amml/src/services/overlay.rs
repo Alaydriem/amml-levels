@@ -1,8 +1,5 @@
-use std::path::Path;
-
-use amm_client::link::ApiTable;
-use amm_core::errors::LinkError;
-use levels_core::services::LevelsController;
+use amm_client::link::LinkState;
+use levels_core::services::{InfoPanel, LevelsController};
 use levels_core::structs::frame::{ColumnRequest, FrameStatus};
 use levels_core::structs::light::SurfaceSample;
 use levels_core::structs::marker::WorldDrawPlan;
@@ -20,11 +17,10 @@ pub struct Overlay {
 }
 
 impl Overlay {
-    // registers with the manager and starts core from the manager's config; an unreadable config gives the defaults
-    pub fn connect(table: ApiTable, config_dir: &Path) -> Result<Self, LinkError> {
-        let session = ManagerSession::connect(table, config_dir)?;
+    // starts core from the manager's config on a connected session; an unreadable config gives the defaults
+    pub fn connect(session: ManagerSession) -> Self {
         let controller = LevelsController::new(session.config().unwrap_or_default());
-        Ok(Self::new(controller, session))
+        Self::new(controller, session)
     }
 
     pub fn new(controller: LevelsController, session: ManagerSession) -> Self {
@@ -67,12 +63,20 @@ impl Overlay {
         self.controller.world_plan()
     }
 
-    pub fn world_timing(&mut self, build_us: f32, draw_us: f32, meshes_built: u32) {
-        self.controller.world_timing(build_us, draw_us, meshes_built);
+    pub fn world_timing(&mut self, build_us: f32, draw_us: f32, meshes_built: u32, quads_converted: u32) {
+        self.controller.world_timing(build_us, draw_us, meshes_built, quads_converted);
     }
 
     pub fn is_in_world(&self) -> bool {
         self.controller.is_in_world()
+    }
+
+    pub fn link_state(&self) -> LinkState {
+        self.session.state()
+    }
+
+    pub fn is_telemetry_on(&self) -> bool {
+        self.controller.is_telemetry_on()
     }
 
     pub fn is_on(&self) -> bool {
@@ -81,5 +85,9 @@ impl Overlay {
 
     pub fn controller(&self) -> &LevelsController {
         &self.controller
+    }
+
+    pub fn info_mut(&mut self) -> &mut InfoPanel {
+        self.controller.info_mut()
     }
 }

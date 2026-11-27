@@ -10,6 +10,11 @@ claim "WorldDraw" {
   reason = "Light numbers, chunk borders and spawn spheres"
 }
 
+claim "Hud" {
+  mode   = "Shared"
+  reason = "Info panel"
+}
+
 keybind "toggle" {
   label       = "Toggle light levels"
   default     = "F3+L"
@@ -50,6 +55,14 @@ keybind "sphere_clear" {
   config_path = "keys.sphere_clear"
 }
 
+keybind "info" {
+  label       = "Show info panel"
+  default     = "F3+T"
+  capability  = "Hud"
+  scope       = "Global"
+  config_path = "keys.info"
+}
+
 section "keys" {
   title = "Keys"
 
@@ -85,6 +98,133 @@ section "keys" {
     label   = "Remove all spawn spheres"
     kind    = "chord"
     default = "F3+Alt+J"
+    apply   = "Live"
+  }
+
+  field "keys.info" {
+    label   = "Show info panel"
+    kind    = "chord"
+    default = "F3+T"
+    apply   = "Live"
+  }
+}
+
+section "info" {
+  title = "Info panel"
+
+  field "info.mode" {
+    label   = "Key mode"
+    kind    = { enum = { options = [{ value = "toggle", label = "Toggle" }, { value = "hold", label = "Hold" }] } }
+    default = "toggle"
+    apply   = "Live"
+  }
+
+  field "info.corner" {
+    label   = "Corner"
+    kind    = { enum = { options = [{ value = "top_left", label = "Top left" }, { value = "top_right", label = "Top right" }] } }
+    default = "top_left"
+    apply   = "Live"
+  }
+
+  field "info.refresh_seconds" {
+    label   = "Refresh time"
+    kind    = { float = { min = 0.05, max = 2.0, step = 0.05, unit = "s" } }
+    default = 0.25
+    apply   = "Live"
+  }
+
+  field "info.entity_radius" {
+    label   = "Entity radius (blocks)"
+    kind    = { float = { min = 4.0, max = 64.0, step = 1.0 } }
+    default = 32.0
+    apply   = "Live"
+  }
+
+  field "info.entity_scan_seconds" {
+    label   = "Entity scan time"
+    kind    = { float = { min = 0.1, max = 5.0, step = 0.1, unit = "s" } }
+    default = 0.5
+    apply   = "Live"
+  }
+
+  field "info.background_alpha" {
+    label   = "Background opacity"
+    kind    = { float = { min = 0.0, max = 1.0, step = 0.05 } }
+    default = 0.5
+    apply   = "Live"
+  }
+
+  field "info.top_offset" {
+    label   = "Top offset"
+    help    = "Moves the panel down, below the game's coordinates"
+    kind    = { float = { min = 0.0, max = 200.0, step = 1.0 } }
+    default = 24.0
+    apply   = "Live"
+  }
+
+  field "info.show_position" {
+    label   = "Position"
+    help    = "Coordinates, the block you stand on, chunk and facing"
+    kind    = "bool"
+    default = true
+    apply   = "Live"
+  }
+
+  field "info.show_world" {
+    label   = "Dimension and biome"
+    kind    = "bool"
+    default = true
+    apply   = "Live"
+  }
+
+  field "info.show_chunk" {
+    label   = "Slime chunk"
+    kind    = "bool"
+    default = true
+    apply   = "Live"
+  }
+
+  field "info.show_light" {
+    label   = "Light at the feet"
+    kind    = "bool"
+    default = true
+    apply   = "Live"
+  }
+
+  field "info.show_target" {
+    label   = "Target"
+    help    = "The block or entity under the crosshair"
+    kind    = "bool"
+    default = true
+    apply   = "Live"
+  }
+
+  field "info.show_motion" {
+    label   = "Speed"
+    kind    = "bool"
+    default = true
+    apply   = "Live"
+  }
+
+  field "info.show_entities" {
+    label   = "Entities"
+    kind    = "bool"
+    default = true
+    apply   = "Live"
+  }
+
+  field "info.show_performance" {
+    label   = "FPS and frame time"
+    kind    = "bool"
+    default = true
+    apply   = "Live"
+  }
+
+  field "info.show_amml" {
+    label   = "World and levels"
+    help    = "World name, seed, connection, levels frame cost and memory"
+    kind    = "bool"
+    default = true
     apply   = "Live"
   }
 }

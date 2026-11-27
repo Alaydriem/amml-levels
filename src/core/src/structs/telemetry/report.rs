@@ -13,6 +13,9 @@ pub struct TelemetryReport {
     pub quads_drawn: u32,
     // border or shell meshes rebuilt in the window
     pub meshes_built: u32,
+    // label list and mesh builds, and quads converted for the loader, per second of the window
+    pub label_builds_per_s: f32,
+    pub quads_converted_per_s: f32,
     pub world_build_us_avg: f32,
     pub world_draw_us_avg: f32,
     pub memory_bytes: u64,

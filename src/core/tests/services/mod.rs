@@ -1,11 +1,17 @@
+mod actor_kinds;
 mod chunk_border_planner;
 mod controller;
 mod digit_font;
 mod draw_list_builder;
+mod entity_census;
+mod frame_rate;
+mod info_layout;
+mod info_panel;
 mod label_grid;
 mod label_mesh_builder;
 mod light_classifier;
 mod marker_registry;
+mod motion_meter;
 mod scan_planner;
 mod slime_chunks;
 mod sphere_shell_builder;

@@ -65,7 +65,11 @@ impl WorldMarkers {
             ManagerSignal::LeaseLost | ManagerSignal::LeaseSuspended => self.is_lease_hidden = true,
             ManagerSignal::LeaseRestored => self.is_lease_hidden = false,
             ManagerSignal::Disabled => self.clear_all(),
-            ManagerSignal::TogglePressed => {}
+            ManagerSignal::TogglePressed
+            | ManagerSignal::InfoPressed
+            | ManagerSignal::InfoReleased
+            | ManagerSignal::HudLeaseLost
+            | ManagerSignal::HudLeaseRestored => {}
         }
     }
 
@@ -99,6 +103,7 @@ impl WorldMarkers {
             label_origin: BlockPos::default(),
             label_version: 0,
             label_quads: &[],
+            label_parts: &[],
             border_origin: self.planner.origin(),
             border_version: self.planner.version(),
             border_quads: self.planner.quads(),
@@ -128,6 +133,10 @@ impl WorldMarkers {
             self.rebuild_shells();
         }
         self.planner.set_vibrant(vibrant);
+    }
+
+    pub fn marker_count(&self) -> usize {
+        self.registry.len()
     }
 
     pub fn is_active(&self) -> bool {
